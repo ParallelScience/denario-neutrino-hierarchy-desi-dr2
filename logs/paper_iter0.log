@@ -13,5 +13,15 @@ Conclusions found on Conclusions.tex
 Compiling paper_v1_preliminary...✅✅
 Refined results found on Results_refined.tex
 Compiling paper_v2_no_citations..✅✅
-Paper written in 0 min 19 sec.
-Cost: $0.0013
+   - Citations added to Introduction
+   - Citations added to Methods
+Sanitized BibTeX saved to: /home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/paper_output/bibliography.bib
+✅ Citations added to all sections.
+Compiling paper_v3_citations.....✅✅✅
+Refining Introduction with citations
+Refining Methods with citations
+✅  - Introduction with citations refined
+✅  - Methods with citations refined
+Compiling paper_v4_final.........✅✅✅
+Paper written in 9 min 7 sec.
+Cost: $0.246
