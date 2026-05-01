@@ -1,0 +1,100 @@
+{
+    "sub_tasks": [
+        {
+            "bullet_points": [
+                "Download the DESI DR2 MCMC chains for the baseline ($Λ$CDM), dark energy extension ($w_0w_a$CDM), and alternative CMB likelihoods (plik and L-H variants) from the provided URLs.",
+                "Extract the 1D marginalized posterior for the sum of neutrino masses ($Σ m_ν$) using the appropriate MCMC analysis library.",
+                "Construct the cosmological likelihood using both a Kernel Density Estimate (KDE) and a truncated Gaussian fit constrained to non-negative values.",
+                "Compare these representations with the published Feldman-Cousins profile likelihood.",
+                "Generate a comparative plot of the likelihoods.",
+                "Save the extracted $Σ m_ν$ samples and fitted Gaussian parameters ($μ_0, σ$) as a structured data file (e.g., npz or json) so that all downstream steps can load them without re-downloading."
+            ],
+            "sub_task": "Data Acquisition and Preprocessing",
+            "sub_task_agent": "engineer"
+        },
+        {
+            "bullet_points": [
+                "Implement the hierarchy-specific likelihoods by combining the cosmological likelihood with the oscillation likelihood. Implement the oscillation likelihood as a product of independent Gaussians for $Δ m^2_{21}$ and $Δ m^2_{3ℓ}$ using NuFIT 6.0 central values and uncertainties.",
+                "Implement the SJPV hierarchical logarithmic prior (marginalizing over its hyperparameters), the HS objective prior (using the Jacobian transformation), and a simple flat prior in $Σ m_ν$ as a control/reference case.",
+                "Compute the Bayesian evidence for both Normal Hierarchy (NH) and Inverted Hierarchy (IH) using Monte Carlo integration.",
+                "Calculate the Bayes factors for all priors. Separately store the evidence values computed with and without the $Δχ^2$(IO-NO) oscillation global-fit contribution, so the multiplicative factor $\\exp(Δχ^2/2)$ can be reported independently.",
+                "Print all intermediate evidence values (not just Bayes factors) to the console for traceability, and save the computed evidence values and Bayes factors to disk."
+            ],
+            "sub_task": "Bayesian Evidence Framework Implementation",
+            "sub_task_agent": "engineer"
+        },
+        {
+            "bullet_points": [
+                "Compile the provided historical cosmological upper limits from 2002 to 2025.",
+                "Re-calculate the Bayesian evidence and Bayes factors for each historical limit using a Gaussian approximation for the likelihood.",
+                "Generate a timeline plot illustrating the evolution of the Bayes factor over time to demonstrate the predictive power of the methodology.",
+                "Annotate the timeline plot with the Jeffreys scale thresholds (K=3.2, K=10, K=100) as horizontal reference lines, and mark the year of the Jimenez et al. 2022 paper on the plot.",
+                "Save the timeline plot and the historical Bayes factor results to disk."
+            ],
+            "sub_task": "Historical Evolution Analysis",
+            "sub_task_agent": "engineer"
+        },
+        {
+            "bullet_points": [
+                "Calculate the prior volume for both hierarchies to visualize the geometric effects of the SJPV and HS frameworks.",
+                "Perform sensitivity checks by varying the hyperprior boundaries of the SJPV prior and comparing the results against a simple flat prior.",
+                "Produce a single multi-panel figure combining the prior volume comparison plots for both SJPV and HS frameworks side by side with the sensitivity analysis results.",
+                "Save the plots and the sensitivity analysis results to disk."
+            ],
+            "sub_task": "Prior Sensitivity and Volume Analysis",
+            "sub_task_agent": "engineer"
+        },
+        {
+            "bullet_points": [
+                "Generate posterior samples for the individual mass eigenstates ($m_1, m_2, m_3$) and their sum ($Σ$) for both hierarchies.",
+                "Generate separate corner (triangle) plots for NH and IH (two figures) to visualize the joint and marginal posterior distributions of the masses.",
+                "Construct a mass spectrum plot showing the individual masses as a function of the lightest mass state, including both the NH and IH curves on the same axes with distinct colors and line styles, clearly labeling the minimum mass thresholds from oscillation data as vertical/horizontal reference lines.",
+                "Save the plots and the posterior samples to disk."
+            ],
+            "sub_task": "Mass Posterior and Spectral Analysis",
+            "sub_task_agent": "engineer"
+        },
+        {
+            "bullet_points": [
+                "Compute the posterior distribution for the effective Majorana mass ($m_{ββ}$) for both hierarchies by sampling over the PMNS matrix elements and uniformly distributed Majorana phases.",
+                "Compute and report the 95th percentile upper limit on $m_{ββ}$ for both NH and IH.",
+                "Generate a 1D posterior plot of the effective Majorana mass. Include a second panel or inset showing the implied lower bound on the neutrinoless double-beta decay half-life $T^{0νββ}_{1/2}$ as a function of $m_{ββ}$, with the nEXO and KamLAND-Zen sensitivity thresholds marked.",
+                "Save the plot and the $m_{ββ}$ posterior data to disk."
+            ],
+            "sub_task": "Double-Beta Decay Projections",
+            "sub_task_agent": "engineer"
+        },
+        {
+            "bullet_points": [
+                "Re-compute the Bayesian evidence using the dark energy extension model ($w_0w_a$CDM) constraints to evaluate the dependency of the Bayes factor on the assumed cosmological model.",
+                "Compile a comprehensive summary table of Bayes factors across all provided dataset combinations (baseline, alternative CMB, +SNIa) and priors.",
+                "Compare the results obtained using the NuFIT 5.1 parameters versus the NuFIT 6.0 parameters.",
+                "Produce a bar chart or visual summary figure showing the Bayes factors K across all dataset combinations and both priors.",
+                "Print the full summary table to the console in addition to saving it and the comparative data to disk."
+            ],
+            "sub_task": "Dark Energy Dependency and Summary Tables",
+            "sub_task_agent": "engineer"
+        },
+        {
+            "bullet_points": [
+                "Write a formal mathematical and philosophical discussion contrasting the geometric volume effects of the SJPV and HS priors.",
+                "Explicitly reference the numerical prior volume ratios computed in Step 4 when discussing the geometric volume argument.",
+                "Include a formal derivation of the HS Jacobian prior from the Fisher information matrix of the oscillation likelihood, explaining why this constitutes a reference prior in the Bernardo-Berger sense.",
+                "Discuss the implications of objective versus hierarchical priors in the context of the new DESI DR2 constraints."
+            ],
+            "sub_task": "Philosophical Analysis of Prior Choice",
+            "sub_task_agent": "researcher"
+        },
+        {
+            "bullet_points": [
+                "Write the comprehensive Results section of the paper.",
+                "Structure the Results section with clearly labeled subsections corresponding to each analysis step (cosmological likelihood, Bayes factors, historical evolution, prior sensitivity, mass posteriors, double-beta decay, dark energy dependence).",
+                "Detail all qualitative and quantitative findings, interpret the generated plots, and present the key statistics from the analysis.",
+                "Include a dedicated paragraph comparing the 2022 NuFIT 5.1 results with the 2025 NuFIT 6.0 + DESI DR2 results, quantifying the improvement in evidence strength.",
+                "Ensure the report is fully self-contained, referencing the specific figures and tables generated in the previous steps, ready for inclusion in the final manuscript."
+            ],
+            "sub_task": "Final Results Report",
+            "sub_task_agent": "researcher"
+        }
+    ]
+}

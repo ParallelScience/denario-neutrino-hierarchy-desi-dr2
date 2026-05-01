@@ -1,0 +1,550 @@
+[
+  {
+    "name": "control_starter",
+    "content": "",
+    "timestamp": "2026-05-01 18:01:42",
+    "cost": {
+      "Agent": [
+        "control_starter"
+      ],
+      "Model": [
+        "gemini-3.1-flash-lite-preview"
+      ],
+      "Cost": [
+        0.00153525
+      ],
+      "Prompt Tokens": [
+        6063
+      ],
+      "Completion Tokens": [
+        13
+      ],
+      "Total Tokens": [
+        6076
+      ]
+    }
+  },
+  {
+    "name": "_Group_Tool_Executor",
+    "content": "\n**Step number:** 2 out of 9.\n\n**Sub-task:** Bayesian Evidence Framework Implementation\n\n**Agent in charge of sub-task:** `engineer`\n\n**Instructions:**\n\n- Implement the hierarchy-specific likelihoods by combining the cosmological likelihood with the oscillation likelihood. Implement the oscillation likelihood as a product of independent Gaussians for $\u0394 m^2_{21}$ and $\u0394 m^2_{3\u2113}$ using NuFIT 6.0 central values and uncertainties.\n- Implement the SJPV hierarchical logarithmic prior (marginalizing over its hyperparameters), the HS objective prior (using the Jacobian transformation), and a simple flat prior in $\u03a3 m_\u03bd$ as a control/reference case.\n- Compute the Bayesian evidence for both Normal Hierarchy (NH) and Inverted Hierarchy (IH) using Monte Carlo integration.\n- Calculate the Bayes factors for all priors. Separately store the evidence values computed with and without the $\u0394\u03c7^2$(IO-NO) oscillation global-fit contribution, so the multiplicative factor $\\exp(\u0394\u03c7^2/2)$ can be reported independently.\n- Print all intermediate evidence values (not just Bayes factors) to the console for traceability, and save the computed evidence values and Bayes factors to disk.\n\n**Status:** in progress \u23f3\n",
+    "timestamp": "2026-05-01 18:01:42",
+    "cost": {
+      "Agent": [],
+      "Model": [],
+      "Cost": [],
+      "Prompt Tokens": [],
+      "Completion Tokens": [],
+      "Total Tokens": []
+    }
+  },
+  {
+    "name": "engineer",
+    "content": "**Code Explanation:**\n\nThe code implements the Bayesian Evidence Framework to compute the evidence for the Normal Hierarchy (NH) and Inverted Hierarchy (IH) using Monte Carlo integration. \n\n1. **Priors**:\n   - **SJPV Prior**: The hierarchical logarithmic prior is computed by analytically integrating out the hyperparameter $\\mu$ (which results in a Gaussian integral) and numerically integrating over the hyperparameter $\\sigma$ using the trapezoidal rule. This makes the evaluation highly efficient and vectorized.\n   - **HS Prior**: The objective Jeffreys-Fisher prior is implemented using the Jacobian of the transformation from the natural oscillation parameters to the individual masses, truncated at $\\Sigma \\le 1.5$ eV.\n   - **Flat Prior**: A simple flat prior in $\\Sigma m_\\nu$ is implemented as a control case.\n\n2. **Likelihoods**:\n   - **Cosmological Likelihood**: Modeled as a Gaussian $P(D_{\\text{cosmo}} | \\Sigma) \\propto \\exp(-(\\Sigma - \\mu_0)^2 / 2\\sigma^2)$ using the fitted parameters from Step 1 for the baseline, plik, L-H, and $w_0w_a$CDM datasets, as well as the Feldman-Cousins profile likelihood.\n   - **Oscillation Likelihood**: Modeled by sampling the mass-squared splittings $\\Delta m^2_{21}$ and $\\Delta m^2_{3\\ell}$ directly from their NuFIT 6.0 Gaussian distributions.\n\n3. **Monte Carlo Integration**:\n   - The integral over the lightest mass $m_L$ is performed using $10^7$ Monte Carlo samples. To ensure memory efficiency, the sampling is processed in chunks of $10^6$.\n   - The Jacobian of the transformation from $(m_1, m_2, m_3)$ to $(m_L, \\Delta m^2_{21}, \\Delta m^2_{3\\ell})$ is rigorously applied.\n   - Multiprocessing (`concurrent.futures.ProcessPoolExecutor`) is used to compute the evidence for all combinations of datasets, priors, and hierarchies in parallel.\n\n4. **Bayes Factors**:\n   - The base Bayes factor $K_{\\text{base}}$ is computed using only the cosmological data and the normalized oscillation mass-splitting likelihoods.\n   - The total Bayes factor $K_{\\text{full}}$ incorporates the $\\Delta\\chi^2 = 6.1$ contribution from the NuFIT 6.0 global fit, applying the multiplicative factor $\\exp(\\Delta\\chi^2 / 2)$.\n   - All intermediate evidence values and Bayes factors are printed to the console and saved to a JSON file for downstream steps.\n\n**Python Code:**\n\n```python\nimport os\nimport json\nimport hashlib\nimport numpy as np\nimport concurrent.futures\nfrom scipy.special import ndtr\n\ndef compute_sjpv_prior(mL, mM, mH):\n    \"\"\"\n    Computes the SJPV (Hierarchical Logarithmic) prior for a given set of masses.\n    Marginalizes over the hyperparameters mu and sigma.\n    \n    Parameters:\n    -----------\n    mL, mM, mH : numpy.ndarray\n        Arrays of the lightest, middle, and heaviest neutrino masses in eV.\n        \n    Returns:\n    --------\n    numpy.ndarray\n        The evaluated SJPV prior probability density for each mass triplet.\n    \"\"\"\n    S1 = np.log(mL) + np.log(mM) + np.log(mH)\n    S2 = np.log(mL)**2 + np.log(mM)**2 + np.log(mH)**2\n    V = S2 - (S1**2) / 3.0\n    \n    x_min = np.log(5e-4)\n    x_max = np.log(0.3)\n    y_min = np.log(5e-3)\n    y_max = np.log(20.0)\n    \n    y = np.linspace(y_min, y_max, 500)\n    dy = y[1] - y[0]\n    \n    S1 = S1[:, np.newaxis]\n    V = V[:, np.newaxis]\n    y = y[np.newaxis, :]\n    \n    ey = np.exp(y)\n    e2y = np.exp(2*y)\n    \n    u_max = np.sqrt(3) * (x_max - S1/3.0) / ey\n    u_min = np.sqrt(3) * (x_min - S1/3.0) / ey\n    \n    phi_diff = ndtr(u_max) - ndtr(u_min)\n    \n    # Compute log of integrand to avoid underflow/overflow issues\n    log_term1 = -np.log(mL[:, np.newaxis]) - np.log(mM[:, np.newaxis]) - np.log(mH[:, np.newaxis]) \\\n                - np.log(2 * np.pi * np.sqrt(3)) - 2*y\n    log_term2 = -V / (2 * e2y)\n    \n    log_phi_diff = np.log(np.maximum(phi_diff, 1e-300))\n    \n    log_integrand = log_term1 + log_term2 + log_phi_diff\n    integrand = np.exp(log_integrand)\n    \n    integral = np.trapz(integrand, dx=dy, axis=1)\n    prior_vol = (x_max - x_min) * (y_max - y_min)\n    \n    return integral / prior_vol\n\ndef compute_hs_prior(mL, mM, mH, sigma_val):\n    \"\"\"\n    Computes the HS (Objective Bayesian / Jeffreys-Fisher) prior.\n    \n    Parameters:\n    -----------\n    mL, mM, mH : numpy.ndarray\n        Arrays of the lightest, middle, and heaviest neutrino masses in eV.\n    sigma_val : numpy.ndarray\n        Array of the sum of neutrino masses in eV.\n        \n    Returns:\n    --------\n    numpy.ndarray\n        The evaluated HS prior probability density.\n    \"\"\"\n    Z_HS = (1.5**6) / 60.0\n    prior = (4.0 / Z_HS) * (mL*mM + mL*mH + mM*mH)\n    prior[sigma_val > 1.5] = 0.0\n    return prior\n\ndef compute_evidence(hierarchy, prior_type, mu_cosmo, sigma_cosmo, N=10000000, chunk_size=1000000):\n    \"\"\"\n    Computes the Bayesian evidence for a given hierarchy and prior using Monte Carlo integration.\n    \n    Parameters:\n    -----------\n    hierarchy : str\n        'NH' for Normal Hierarchy, 'IH' for Inverted Hierarchy.\n    prior_type : str\n        'SJPV', 'HS', or 'Flat'.\n    mu_cosmo : float\n        Mean of the Gaussian cosmological likelihood in eV.\n    sigma_cosmo : float\n        Standard deviation of the Gaussian cosmological likelihood in eV.\n    N : int\n        Total number of Monte Carlo samples.\n    chunk_size : int\n        Number of samples to process in each chunk to save memory.\n        \n    Returns:\n    --------\n    float\n        The computed Bayesian evidence.\n    \"\"\"\n    mL_max = 0.8\n    total_integral = 0.0\n    \n    for i in range(0, N, chunk_size):\n        current_chunk = min(chunk_size, N - i)\n        \n        # Sample oscillation parameters (NuFIT 6.0)\n        if hierarchy == 'NH':\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(2.513e-3, 0.020e-3, current_chunk)\n        else:\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(-2.484e-3, 0.020e-3, current_chunk)\n            \n        # Sample lightest mass\n        mL = np.random.uniform(1e-6, mL_max, current_chunk)\n        \n        # Compute individual masses\n        if hierarchy == 'NH':\n            m1 = mL\n            m2 = np.sqrt(m1**2 + dm2_21)\n            m3 = np.sqrt(m1**2 + dm2_3l)\n            m_L, m_M, m_H = m1, m2, m3\n        else:\n            m3 = mL\n            m2 = np.sqrt(m3**2 + np.abs(dm2_3l))\n            m1 = np.sqrt(m3**2 + np.abs(dm2_3l) - dm2_21)\n            m_L, m_M, m_H = m3, m1, m2\n            \n        # Safeguard against invalid masses (extremely rare given the distributions)\n        valid = (m1 > 0) & (m2 > 0) & (m3 > 0)\n        m_L = np.where(valid, m_L, 1e-6)\n        m_M = np.where(valid, m_M, 1e-6)\n        m_H = np.where(valid, m_H, 1e-6)\n        \n        sigma_val = m_L + m_M + m_H\n        \n        # Cosmological likelihood\n        like_cosmo = np.exp(-0.5 * ((sigma_val - mu_cosmo) / sigma_cosmo)**2)\n        like_cosmo[~valid] = 0.0\n        \n        # Jacobian from (m1, m2, m3) to (mL, dm2_21, dm2_3l)\n        jacobian = 1.0 / (4.0 * m_M * m_H)\n        \n        if prior_type == 'SJPV':\n            # Multiply by 6 for the ordering symmetry\n            prior = 6.0 * compute_sjpv_prior(m_L, m_M, m_H)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'HS':\n            prior = compute_hs_prior(m_L, m_M, m_H, sigma_val)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'Flat':\n            # Jacobian from Sigma to mL\n            dSigma_dmL = 1.0 + m_L/m_M + m_L/m_H\n            prior = np.ones_like(sigma_val) / 1.5\n            prior[sigma_val > 1.5] = 0.0\n            integrand = like_cosmo * prior * dSigma_dmL\n            \n        total_integral += np.sum(integrand)\n        \n    evidence = mL_max * (total_integral / N)\n    return evidence\n\ndef task(args):\n    \"\"\"\n    Worker function for multiprocessing.\n    \"\"\"\n    ds_name, prior, hierarchy, mu, sigma = args\n    # Create a deterministic unique seed for this task\n    seed_str = f\"{ds_name}_{prior}_{hierarchy}\"\n    seed = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % (2**32)\n    np.random.seed(seed)\n    \n    E = compute_evidence(hierarchy, prior, mu, sigma, N=10000000, chunk_size=1000000)\n    return ds_name, prior, hierarchy, E\n\nif __name__ == '__main__':\n    # Cosmological likelihood parameters (Gaussian fits from Step 1)\n    datasets = {\n        'baseline': {'mu': -0.009, 'sigma': 0.036},\n        'plik': {'mu': -0.005, 'sigma': 0.037},\n        'lh': {'mu': -0.012, 'sigma': 0.043},\n        'w0wa': {'mu': 0.047, 'sigma': 0.065},\n        'FC': {'mu': -0.036, 'sigma': 0.043}\n    }\n    \n    priors = ['SJPV', 'HS', 'Flat']\n    hierarchies = ['NH', 'IH']\n    \n    tasks = []\n    for ds_name, ds_params in datasets.items():\n        for prior in priors:\n            for hierarchy in hierarchies:\n                tasks.append((ds_name, prior, hierarchy, ds_params['mu'], ds_params['sigma']))\n                \n    results_dict = {}\n    \n    print(\"Starting Monte Carlo integration for Bayesian Evidence...\")\n    # Execute tasks in parallel\n    with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:\n        for res in executor.map(task, tasks):\n            ds_name, prior, hierarchy, E = res\n            if ds_name not in results_dict:\n                results_dict[ds_name] = {}\n            if prior not in results_dict[ds_name]:\n                results_dict[ds_name][prior] = {}\n            results_dict[ds_name][prior][hierarchy] = E\n\n    final_results = []\n    \n    print(\"\\n\" + \"=\"*70)\n    print(\"BAYESIAN EVIDENCE COMPUTATION RESULTS\")\n    print(\"=\"*70)\n    \n    for ds_name in datasets.keys():\n        for prior in priors:\n            E_NH_base = results_dict[ds_name][prior]['NH']\n            E_IH_base = results_dict[ds_name][prior]['IH']\n            \n            # Base Bayes factor (cosmology + prior + normalized oscillation likelihood)\n            K_base = E_NH_base / E_IH_base\n            \n            # Include oscillation global fit delta chi^2 (NuFIT 6.0: +6.1)\n            delta_chi2 = 6.1\n            E_NH_full = E_NH_base\n            E_IH_full = E_IH_base * np.exp(-delta_chi2 / 2.0)\n            \n            # Total Bayes factor\n            K_full = E_NH_full / E_IH_full\n            \n            print(f\"Dataset: {ds_name:<10} | Prior: {prior:<4}\")\n            print(f\"  E_NH (base) = {E_NH_base:.6e}\")\n            print(f\"  E_IH (base) = {E_IH_base:.6e}\")\n            print(f\"  Bayes Factor K (cosmo+prior) = {K_base:.4f}\")\n            print(f\"  Bayes Factor K (total w/ osc) = {K_full:.4f}\")\n            print(\"-\" * 70)\n            \n            final_results.append({\n                'dataset': ds_name,\n                'prior': prior,\n                'E_NH_base': E_NH_base,\n                'E_IH_base': E_IH_base,\n                'K_base': K_base,\n                'E_NH_full': E_NH_full,\n                'E_IH_full': E_IH_full,\n                'K_full': K_full\n            })\n            \n    # Save results to disk\n    output_filepath = os.path.join(\"data\", \"evidence_results_step_2.json\")\n    with open(output_filepath, 'w') as f:\n        json.dump(final_results, f, indent=4)\n        \n    print(f\"\\nResults successfully saved to {output_filepath}\")\n```",
+    "timestamp": "2026-05-01 18:06:03",
+    "cost": {
+      "Agent": [
+        "engineer"
+      ],
+      "Model": [
+        "gemini-3.1-pro-preview"
+      ],
+      "Cost": [
+        0.074086
+      ],
+      "Prompt Tokens": [
+        14657
+      ],
+      "Completion Tokens": [
+        3731
+      ],
+      "Total Tokens": [
+        18388
+      ]
+    }
+  },
+  {
+    "name": "engineer_response_evaluator",
+    "content": "**Code Explanation:**\n\nThe code implements the Bayesian Evidence Framework to compute the evidence for the Normal Hierarchy (NH) and Inverted Hierarchy (IH) using Monte Carlo integration. 1. Priors: - SJPV Prior: The hierarchical logarithmic prior is computed by analytically integrating out the hyperparameter mu (which results in a Gaussian integral) and numerically integrating over the hyperparameter sigma using the trapezoidal rule. This makes the evaluation highly efficient and vectorized. - HS Prior: The objective Jeffreys-Fisher prior is implemented using the Jacobian of the transformation from the natural oscillation parameters to the individual masses, truncated at Sigma <= 1.5 eV. - Flat Prior: A simple flat prior in Sigma m_nu is implemented as a control case. 2. Likelihoods: - Cosmological Likelihood: Modeled as a Gaussian P(D_cosmo | Sigma) proportional to exp(-(Sigma - mu_0)^2 / 2sigma^2) using the fitted parameters from Step 1 for the baseline, plik, L-H, and w0waCDM datasets, as well as the Feldman-Cousins profile likelihood. - Oscillation Likelihood: Modeled by sampling the mass-squared splittings Delta m^2_21 and Delta m^2_3l directly from their NuFIT 6.0 Gaussian distributions. 3. Monte Carlo Integration: - The integral over the lightest mass m_L is performed using 10^7 Monte Carlo samples. To ensure memory efficiency, the sampling is processed in chunks of 10^6. - The Jacobian of the transformation from (m_1, m_2, m_3) to (m_L, Delta m^2_21, Delta m^2_3l) is rigorously applied. - Multiprocessing (concurrent.futures.ProcessPoolExecutor) is used to compute the evidence for all combinations of datasets, priors, and hierarchies in parallel. 4. Bayes Factors: - The base Bayes factor K_base is computed using only the cosmological data and the normalized oscillation mass-splitting likelihoods. - The total Bayes factor K_full incorporates the Delta chi^2 = 6.1 contribution from the NuFIT 6.0 global fit, applying the multiplicative factor exp(Delta chi^2 / 2). - All intermediate evidence values and Bayes factors are printed to the console and saved to a JSON file for downstream steps.\n\n**Modifications:**\n\nThe code was structured to ensure all top-level execution is within an if __name__ == '__main__': block. Relative paths for output were fixed to use the data/ directory. The code was checked for proper indentation and syntax, ensuring no LaTeX rendering or f-string issues.\n\n**Python Code:**\n\n```python\n# filename: codebase/step_2.py\nimport sys\nimport os\nsys.path.insert(0, os.path.abspath(\"codebase\"))\nsys.path.insert(0, \"/home/node/data/compsep_data/\")\nimport json\nimport hashlib\nimport numpy as np\nimport concurrent.futures\nfrom scipy.special import ndtr\n\ndef compute_sjpv_prior(mL, mM, mH):\n    S1 = np.log(mL) + np.log(mM) + np.log(mH)\n    S2 = np.log(mL)**2 + np.log(mM)**2 + np.log(mH)**2\n    V = S2 - (S1**2) / 3.0\n    x_min = np.log(5e-4)\n    x_max = np.log(0.3)\n    y_min = np.log(5e-3)\n    y_max = np.log(20.0)\n    y = np.linspace(y_min, y_max, 500)\n    dy = y[1] - y[0]\n    S1 = S1[:, np.newaxis]\n    V = V[:, np.newaxis]\n    y = y[np.newaxis, :]\n    ey = np.exp(y)\n    e2y = np.exp(2*y)\n    u_max = np.sqrt(3) * (x_max - S1/3.0) / ey\n    u_min = np.sqrt(3) * (x_min - S1/3.0) / ey\n    phi_diff = ndtr(u_max) - ndtr(u_min)\n    log_term1 = -np.log(mL[:, np.newaxis]) - np.log(mM[:, np.newaxis]) - np.log(mH[:, np.newaxis]) - np.log(2 * np.pi * np.sqrt(3)) - 2*y\n    log_term2 = -V / (2 * e2y)\n    log_phi_diff = np.log(np.maximum(phi_diff, 1e-300))\n    log_integrand = log_term1 + log_term2 + log_phi_diff\n    integrand = np.exp(log_integrand)\n    integral = np.trapz(integrand, dx=dy, axis=1)\n    prior_vol = (x_max - x_min) * (y_max - y_min)\n    return integral / prior_vol\n\ndef compute_hs_prior(mL, mM, mH, sigma_val):\n    Z_HS = (1.5**6) / 60.0\n    prior = (4.0 / Z_HS) * (mL*mM + mL*mH + mM*mH)\n    prior[sigma_val > 1.5] = 0.0\n    return prior\n\ndef compute_evidence(hierarchy, prior_type, mu_cosmo, sigma_cosmo, N=10000000, chunk_size=1000000):\n    mL_max = 0.8\n    total_integral = 0.0\n    for i in range(0, N, chunk_size):\n        current_chunk = min(chunk_size, N - i)\n        if hierarchy == 'NH':\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(2.513e-3, 0.020e-3, current_chunk)\n        else:\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(-2.484e-3, 0.020e-3, current_chunk)\n        mL = np.random.uniform(1e-6, mL_max, current_chunk)\n        if hierarchy == 'NH':\n            m1 = mL\n            m2 = np.sqrt(m1**2 + dm2_21)\n            m3 = np.sqrt(m1**2 + dm2_3l)\n            m_L, m_M, m_H = m1, m2, m3\n        else:\n            m3 = mL\n            m2 = np.sqrt(m3**2 + np.abs(dm2_3l))\n            m1 = np.sqrt(m3**2 + np.abs(dm2_3l) - dm2_21)\n            m_L, m_M, m_H = m3, m1, m2\n        valid = (m1 > 0) & (m2 > 0) & (m3 > 0)\n        m_L = np.where(valid, m_L, 1e-6)\n        m_M = np.where(valid, m_M, 1e-6)\n        m_H = np.where(valid, m_H, 1e-6)\n        sigma_val = m_L + m_M + m_H\n        like_cosmo = np.exp(-0.5 * ((sigma_val - mu_cosmo) / sigma_cosmo)**2)\n        like_cosmo[~valid] = 0.0\n        jacobian = 1.0 / (4.0 * m_M * m_H)\n        if prior_type == 'SJPV':\n            prior = 6.0 * compute_sjpv_prior(m_L, m_M, m_H)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'HS':\n            prior = compute_hs_prior(m_L, m_M, m_H, sigma_val)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'Flat':\n            dSigma_dmL = 1.0 + m_L/m_M + m_L/m_H\n            prior = np.ones_like(sigma_val) / 1.5\n            prior[sigma_val > 1.5] = 0.0\n            integrand = like_cosmo * prior * dSigma_dmL\n        total_integral += np.sum(integrand)\n    evidence = mL_max * (total_integral / N)\n    return evidence\n\ndef task(args):\n    ds_name, prior, hierarchy, mu, sigma = args\n    seed_str = ds_name + \"_\" + prior + \"_\" + hierarchy\n    seed = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % (2**32)\n    np.random.seed(seed)\n    E = compute_evidence(hierarchy, prior, mu, sigma, N=10000000, chunk_size=1000000)\n    return ds_name, prior, hierarchy, E\n\nif __name__ == '__main__':\n    datasets = {'baseline': {'mu': -0.009, 'sigma': 0.036}, 'plik': {'mu': -0.005, 'sigma': 0.037}, 'lh': {'mu': -0.012, 'sigma': 0.043}, 'w0wa': {'mu': 0.047, 'sigma': 0.065}, 'FC': {'mu': -0.036, 'sigma': 0.043}}\n    priors = ['SJPV', 'HS', 'Flat']\n    hierarchies = ['NH', 'IH']\n    tasks = []\n    for ds_name, ds_params in datasets.items():\n        for prior in priors:\n            for hierarchy in hierarchies:\n                tasks.append((ds_name, prior, hierarchy, ds_params['mu'], ds_params['sigma']))\n    results_dict = {}\n    print(\"Starting Monte Carlo integration for Bayesian Evidence...\")\n    with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:\n        for res in executor.map(task, tasks):\n            ds_name, prior, hierarchy, E = res\n            if ds_name not in results_dict:\n                results_dict[ds_name] = {}\n            if prior not in results_dict[ds_name]:\n                results_dict[ds_name][prior] = {}\n            results_dict[ds_name][prior][hierarchy] = E\n    final_results = []\n    print(\"\\n\" + \"=\"*70)\n    print(\"BAYESIAN EVIDENCE COMPUTATION RESULTS\")\n    print(\"=\"*70)\n    for ds_name in datasets.keys():\n        for prior in priors:\n            E_NH_base = results_dict[ds_name][prior]['NH']\n            E_IH_base = results_dict[ds_name][prior]['IH']\n            K_base = E_NH_base / E_IH_base\n            delta_chi2 = 6.1\n            E_NH_full = E_NH_base\n            E_IH_full = E_IH_base * np.exp(-delta_chi2 / 2.0)\n            K_full = E_NH_full / E_IH_full\n            print(\"Dataset: \" + ds_name.ljust(10) + \" | Prior: \" + prior.ljust(4))\n            print(\"  E_NH (base) = \" + str(E_NH_base))\n            print(\"  E_IH (base) = \" + str(E_IH_base))\n            print(\"  Bayes Factor K (cosmo+prior) = \" + str(K_base))\n            print(\"  Bayes Factor K (total w/ osc) = \" + str(K_full))\n            print(\"-\" * 70)\n            final_results.append({'dataset': ds_name, 'prior': prior, 'E_NH_base': E_NH_base, 'E_IH_base': E_IH_base, 'K_base': K_base, 'E_NH_full': E_NH_full, 'E_IH_full': E_IH_full, 'K_full': K_full})\n    output_filepath = os.path.join(\"data\", \"evidence_results_step_2.json\")\n    with open(output_filepath, 'w') as f:\n        json.dump(final_results, f, indent=4)\n    print(\"\\nResults successfully saved to \" + output_filepath)\n```",
+    "timestamp": "2026-05-01 18:06:11",
+    "cost": {
+      "Agent": [
+        "engineer_response_evaluator"
+      ],
+      "Model": [
+        "gemini-3.1-flash-lite-preview"
+      ],
+      "Cost": [
+        0.007070250000000001
+      ],
+      "Prompt Tokens": [
+        9495
+      ],
+      "Completion Tokens": [
+        3131
+      ],
+      "Total Tokens": [
+        12626
+      ]
+    }
+  },
+  {
+    "name": "executor",
+    "content": "execution results:\nExecution output: \nStarting Monte Carlo integration for Bayesian Evidence...\nTraceback (most recent call last):\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 110, in <module>\n    for res in executor.map(task, tasks):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/process.py\", line 636, in _chain_from_iterable_of_lists\n    for element in iterable:\n                   ^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 619, in result_iterator\n    yield _result_or_cancel(fs.pop())\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 317, in _result_or_cancel\n    return fut.result(timeout)\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 456, in result\n    return self.__get_result()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 401, in __get_result\n    raise self._exception\nconcurrent.futures.process.BrokenProcessPool: A process in the process pool was terminated abruptly while the future was running or pending.\n",
+    "timestamp": "2026-05-01 18:06:58",
+    "cost": {
+      "Agent": [],
+      "Model": [],
+      "Cost": [],
+      "Prompt Tokens": [],
+      "Completion Tokens": [],
+      "Total Tokens": []
+    }
+  },
+  {
+    "name": "execution_recorder",
+    "content": "Code execution recorded.\n\nExecution output:\nexecution results:\nExecution output: \nStarting Monte Carlo integration for Bayesian Evidence...\nTraceback (most recent call last):\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 110, in <module>\n    for res in executor.map(task, tasks):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/process.py\", line 636, in _chain_from_iterable_of_lists\n    for element in iterable:\n                   ^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 619, in result_iterator\n    yield _result_or_cancel(fs.pop())\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 317, in _result_or_cancel\n    return fut.result(timeout)\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 456, in result\n    return self.__get_result()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 401, in __get_result\n    raise self._exception\nconcurrent.futures.process.BrokenProcessPool: A process in the process pool was terminated abruptly while the future was running or pending.\n",
+    "timestamp": "2026-05-01 18:06:58",
+    "cost": {
+      "Agent": [],
+      "Model": [],
+      "Cost": [],
+      "Prompt Tokens": [],
+      "Completion Tokens": [],
+      "Total Tokens": []
+    }
+  },
+  {
+    "name": "executor_response_evaluator",
+    "content": "",
+    "timestamp": "2026-05-01 18:06:59",
+    "cost": {
+      "Agent": [
+        "executor_response_evaluator"
+      ],
+      "Model": [
+        "gemini-3.1-flash-lite-preview"
+      ],
+      "Cost": [
+        0.0004535
+      ],
+      "Prompt Tokens": [
+        1112
+      ],
+      "Completion Tokens": [
+        117
+      ],
+      "Total Tokens": [
+        1229
+      ]
+    }
+  },
+  {
+    "name": "_Group_Tool_Executor",
+    "content": "Code execution status: failure. Transfer to engineer.\n\nxxxxxxxxxxxxxxxxxxxxxxxxxx\n\nWorkflow status:\n\nPlan step number: 2\n\nAgent for sub-task (might be different from the next agent suggestion for debugging): engineer\n\nStep status (before execution): in progress\n\nCode status: failure\n\nxxxxxxxxxxxxxxxxxxxxxxxxxx\n\n\n**Attempt 1 of 10 (9 remaining).**\nThe failed code was:\n\n```python\n# filename: codebase/step_2.py\nimport sys\nimport os\nsys.path.insert(0, os.path.abspath(\"codebase\"))\nsys.path.insert(0, \"/home/node/data/compsep_data/\")\nimport json\nimport hashlib\nimport numpy as np\nimport concurrent.futures\nfrom scipy.special import ndtr\n\ndef compute_sjpv_prior(mL, mM, mH):\n    S1 = np.log(mL) + np.log(mM) + np.log(mH)\n    S2 = np.log(mL)**2 + np.log(mM)**2 + np.log(mH)**2\n    V = S2 - (S1**2) / 3.0\n    x_min = np.log(5e-4)\n    x_max = np.log(0.3)\n    y_min = np.log(5e-3)\n    y_max = np.log(20.0)\n    y = np.linspace(y_min, y_max, 500)\n    dy = y[1] - y[0]\n    S1 = S1[:, np.newaxis]\n    V = V[:, np.newaxis]\n    y = y[np.newaxis, :]\n    ey = np.exp(y)\n    e2y = np.exp(2*y)\n    u_max = np.sqrt(3) * (x_max - S1/3.0) / ey\n    u_min = np.sqrt(3) * (x_min - S1/3.0) / ey\n    phi_diff = ndtr(u_max) - ndtr(u_min)\n    log_term1 = -np.log(mL[:, np.newaxis]) - np.log(mM[:, np.newaxis]) - np.log(mH[:, np.newaxis]) - np.log(2 * np.pi * np.sqrt(3)) - 2*y\n    log_term2 = -V / (2 * e2y)\n    log_phi_diff = np.log(np.maximum(phi_diff, 1e-300))\n    log_integrand = log_term1 + log_term2 + log_phi_diff\n    integrand = np.exp(log_integrand)\n    integral = np.trapz(integrand, dx=dy, axis=1)\n    prior_vol = (x_max - x_min) * (y_max - y_min)\n    return integral / prior_vol\n\ndef compute_hs_prior(mL, mM, mH, sigma_val):\n    Z_HS = (1.5**6) / 60.0\n    prior = (4.0 / Z_HS) * (mL*mM + mL*mH + mM*mH)\n    prior[sigma_val > 1.5] = 0.0\n    return prior\n\ndef compute_evidence(hierarchy, prior_type, mu_cosmo, sigma_cosmo, N=10000000, chunk_size=1000000):\n    mL_max = 0.8\n    total_integral = 0.0\n    for i in range(0, N, chunk_size):\n        current_chunk = min(chunk_size, N - i)\n        if hierarchy == 'NH':\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(2.513e-3, 0.020e-3, current_chunk)\n        else:\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(-2.484e-3, 0.020e-3, current_chunk)\n        mL = np.random.uniform(1e-6, mL_max, current_chunk)\n        if hierarchy == 'NH':\n            m1 = mL\n            m2 = np.sqrt(m1**2 + dm2_21)\n            m3 = np.sqrt(m1**2 + dm2_3l)\n            m_L, m_M, m_H = m1, m2, m3\n        else:\n            m3 = mL\n            m2 = np.sqrt(m3**2 + np.abs(dm2_3l))\n            m1 = np.sqrt(m3**2 + np.abs(dm2_3l) - dm2_21)\n            m_L, m_M, m_H = m3, m1, m2\n        valid = (m1 > 0) & (m2 > 0) & (m3 > 0)\n        m_L = np.where(valid, m_L, 1e-6)\n        m_M = np.where(valid, m_M, 1e-6)\n        m_H = np.where(valid, m_H, 1e-6)\n        sigma_val = m_L + m_M + m_H\n        like_cosmo = np.exp(-0.5 * ((sigma_val - mu_cosmo) / sigma_cosmo)**2)\n        like_cosmo[~valid] = 0.0\n        jacobian = 1.0 / (4.0 * m_M * m_H)\n        if prior_type == 'SJPV':\n            prior = 6.0 * compute_sjpv_prior(m_L, m_M, m_H)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'HS':\n            prior = compute_hs_prior(m_L, m_M, m_H, sigma_val)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'Flat':\n            dSigma_dmL = 1.0 + m_L/m_M + m_L/m_H\n            prior = np.ones_like(sigma_val) / 1.5\n            prior[sigma_val > 1.5] = 0.0\n            integrand = like_cosmo * prior * dSigma_dmL\n        total_integral += np.sum(integrand)\n    evidence = mL_max * (total_integral / N)\n    return evidence\n\ndef task(args):\n    ds_name, prior, hierarchy, mu, sigma = args\n    seed_str = ds_name + \"_\" + prior + \"_\" + hierarchy\n    seed = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % (2**32)\n    np.random.seed(seed)\n    E = compute_evidence(hierarchy, prior, mu, sigma, N=10000000, chunk_size=1000000)\n    return ds_name, prior, hierarchy, E\n\nif __name__ == '__main__':\n    datasets = {'baseline': {'mu': -0.009, 'sigma': 0.036}, 'plik': {'mu': -0.005, 'sigma': 0.037}, 'lh': {'mu': -0.012, 'sigma': 0.043}, 'w0wa': {'mu': 0.047, 'sigma': 0.065}, 'FC': {'mu': -0.036, 'sigma': 0.043}}\n    priors = ['SJPV', 'HS', 'Flat']\n    hierarchies = ['NH', 'IH']\n    tasks = []\n    for ds_name, ds_params in datasets.items():\n        for prior in priors:\n            for hierarchy in hierarchies:\n                tasks.append((ds_name, prior, hierarchy, ds_params['mu'], ds_params['sigma']))\n    results_dict = {}\n    print(\"Starting Monte Carlo integration for Bayesian Evidence...\")\n    with concurrent.futures.ProcessPoolExecutor(max_workers=8) as executor:\n        for res in executor.map(task, tasks):\n            ds_name, prior, hierarchy, E = res\n            if ds_name not in results_dict:\n                results_dict[ds_name] = {}\n            if prior not in results_dict[ds_name]:\n                results_dict[ds_name][prior] = {}\n            results_dict[ds_name][prior][hierarchy] = E\n    final_results = []\n    print(\"\\n\" + \"=\"*70)\n    print(\"BAYESIAN EVIDENCE COMPUTATION RESULTS\")\n    print(\"=\"*70)\n    for ds_name in datasets.keys():\n        for prior in priors:\n            E_NH_base = results_dict[ds_name][prior]['NH']\n            E_IH_base = results_dict[ds_name][prior]['IH']\n            K_base = E_NH_base / E_IH_base\n            delta_chi2 = 6.1\n            E_NH_full = E_NH_base\n            E_IH_full = E_IH_base * np.exp(-delta_chi2 / 2.0)\n            K_full = E_NH_full / E_IH_full\n            print(\"Dataset: \" + ds_name.ljust(10) + \" | Prior: \" + prior.ljust(4))\n            print(\"  E_NH (base) = \" + str(E_NH_base))\n            print(\"  E_IH (base) = \" + str(E_IH_base))\n            print(\"  Bayes Factor K (cosmo+prior) = \" + str(K_base))\n            print(\"  Bayes Factor K (total w/ osc) = \" + str(K_full))\n            print(\"-\" * 70)\n            final_results.append({'dataset': ds_name, 'prior': prior, 'E_NH_base': E_NH_base, 'E_IH_base': E_IH_base, 'K_base': K_base, 'E_NH_full': E_NH_full, 'E_IH_full': E_IH_full, 'K_full': K_full})\n    output_filepath = os.path.join(\"data\", \"evidence_results_step_2.json\")\n    with open(output_filepath, 'w') as f:\n        json.dump(final_results, f, indent=4)\n    print(\"\\nResults successfully saved to \" + output_filepath)\n```\n\nExecution output:\n\nexecution results:\nExecution output: \nStarting Monte Carlo integration for Bayesian Evidence...\nTraceback (most recent call last):\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 110, in <module>\n    for res in executor.map(task, tasks):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/process.py\", line 636, in _chain_from_iterable_of_lists\n    for element in iterable:\n                   ^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 619, in result_iterator\n    yield _result_or_cancel(fs.pop())\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 317, in _result_or_cancel\n    return fut.result(timeout)\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 456, in result\n    return self.__get_result()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 401, in __get_result\n    raise self._exception\nconcurrent.futures.process.BrokenProcessPool: A process in the process pool was terminated abruptly while the future was running or pending.\n\n\nFix suggestion: The BrokenProcessPool error often occurs due to memory exhaustion or segmentation faults in child processes when using multiprocessing. I will investigate the code to see if it can be optimized to use less memory or if the multiprocessing approach needs to be adjusted (e.g., reducing the number of workers or switching to a more memory-efficient approach). I will start by examining the code in step_2.py.\n",
+    "timestamp": "2026-05-01 18:06:59",
+    "cost": {
+      "Agent": [],
+      "Model": [],
+      "Cost": [],
+      "Prompt Tokens": [],
+      "Completion Tokens": [],
+      "Total Tokens": []
+    }
+  },
+  {
+    "name": "engineer",
+    "content": "**Code Explanation:**\n\nThe `BrokenProcessPool` error is typically caused by memory exhaustion in child processes. In the previous code, the `compute_sjpv_prior` function created large intermediate arrays (e.g., `S1[:, np.newaxis]` and `y[np.newaxis, :]` with shapes `(1000000, 500)`), which consumed a massive amount of memory per worker, leading to out-of-memory (OOM) kills.\n\nTo fix this, I have:\n1. Reduced the `chunk_size` from `1,000,000` to `100,000` to significantly lower the memory footprint per chunk.\n2. Reduced the number of integration points `y` in `compute_sjpv_prior` from 500 to 100, which is still plenty for a smooth Gaussian integral but reduces memory by a factor of 5.\n3. Reduced `max_workers` to 4 to prevent overall system memory oversubscription.\n4. Added explicit garbage collection (`import gc; gc.collect()`) inside the chunk loop to free memory immediately after each chunk is processed.\n\nThe rest of the Bayesian Evidence Framework implementation remains the same, computing the evidence for NH and IH using Monte Carlo integration over the SJPV, HS, and Flat priors, and outputting the Bayes factors.\n\n**Modifications:**\n- Reduced `chunk_size` to `100,000` to prevent memory exhaustion.\n- Reduced `y` array size in `compute_sjpv_prior` to 100.\n- Reduced `max_workers` to 4.\n- Added `gc.collect()` inside the Monte Carlo loop.\n\n**Python Code:**\n\n```python\nimport os\nimport json\nimport hashlib\nimport numpy as np\nimport concurrent.futures\nimport gc\nfrom scipy.special import ndtr\n\ndef compute_sjpv_prior(mL, mM, mH):\n    \"\"\"\n    Computes the SJPV (Hierarchical Logarithmic) prior for a given set of masses.\n    Marginalizes over the hyperparameters mu and sigma.\n    \"\"\"\n    S1 = np.log(mL) + np.log(mM) + np.log(mH)\n    S2 = np.log(mL)**2 + np.log(mM)**2 + np.log(mH)**2\n    V = S2 - (S1**2) / 3.0\n    \n    x_min = np.log(5e-4)\n    x_max = np.log(0.3)\n    y_min = np.log(5e-3)\n    y_max = np.log(20.0)\n    \n    # Reduced from 500 to 100 to save memory, still accurate enough for this smooth integral\n    y = np.linspace(y_min, y_max, 100)\n    dy = y[1] - y[0]\n    \n    S1 = S1[:, np.newaxis]\n    V = V[:, np.newaxis]\n    y = y[np.newaxis, :]\n    \n    ey = np.exp(y)\n    e2y = np.exp(2*y)\n    \n    u_max = np.sqrt(3) * (x_max - S1/3.0) / ey\n    u_min = np.sqrt(3) * (x_min - S1/3.0) / ey\n    \n    phi_diff = ndtr(u_max) - ndtr(u_min)\n    \n    log_term1 = -np.log(mL[:, np.newaxis]) - np.log(mM[:, np.newaxis]) - np.log(mH[:, np.newaxis]) \\\n                - np.log(2 * np.pi * np.sqrt(3)) - 2*y\n    log_term2 = -V / (2 * e2y)\n    \n    log_phi_diff = np.log(np.maximum(phi_diff, 1e-300))\n    \n    log_integrand = log_term1 + log_term2 + log_phi_diff\n    integrand = np.exp(log_integrand)\n    \n    integral = np.trapz(integrand, dx=dy, axis=1)\n    prior_vol = (x_max - x_min) * (y_max - y_min)\n    \n    return integral / prior_vol\n\ndef compute_hs_prior(mL, mM, mH, sigma_val):\n    \"\"\"\n    Computes the HS (Objective Bayesian / Jeffreys-Fisher) prior.\n    \"\"\"\n    Z_HS = (1.5**6) / 60.0\n    prior = (4.0 / Z_HS) * (mL*mM + mL*mH + mM*mH)\n    prior[sigma_val > 1.5] = 0.0\n    return prior\n\ndef compute_evidence(hierarchy, prior_type, mu_cosmo, sigma_cosmo, N=10000000, chunk_size=100000):\n    \"\"\"\n    Computes the Bayesian evidence for a given hierarchy and prior using Monte Carlo integration.\n    \"\"\"\n    mL_max = 0.8\n    total_integral = 0.0\n    \n    for i in range(0, N, chunk_size):\n        current_chunk = min(chunk_size, N - i)\n        \n        if hierarchy == 'NH':\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(2.513e-3, 0.020e-3, current_chunk)\n        else:\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(-2.484e-3, 0.020e-3, current_chunk)\n            \n        mL = np.random.uniform(1e-6, mL_max, current_chunk)\n        \n        if hierarchy == 'NH':\n            m1 = mL\n            m2 = np.sqrt(m1**2 + dm2_21)\n            m3 = np.sqrt(m1**2 + dm2_3l)\n            m_L, m_M, m_H = m1, m2, m3\n        else:\n            m3 = mL\n            m2 = np.sqrt(m3**2 + np.abs(dm2_3l))\n            m1 = np.sqrt(m3**2 + np.abs(dm2_3l) - dm2_21)\n            m_L, m_M, m_H = m3, m1, m2\n            \n        valid = (m1 > 0) & (m2 > 0) & (m3 > 0)\n        m_L = np.where(valid, m_L, 1e-6)\n        m_M = np.where(valid, m_M, 1e-6)\n        m_H = np.where(valid, m_H, 1e-6)\n        \n        sigma_val = m_L + m_M + m_H\n        \n        like_cosmo = np.exp(-0.5 * ((sigma_val - mu_cosmo) / sigma_cosmo)**2)\n        like_cosmo[~valid] = 0.0\n        \n        jacobian = 1.0 / (4.0 * m_M * m_H)\n        \n        if prior_type == 'SJPV':\n            prior = 6.0 * compute_sjpv_prior(m_L, m_M, m_H)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'HS':\n            prior = compute_hs_prior(m_L, m_M, m_H, sigma_val)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'Flat':\n            dSigma_dmL = 1.0 + m_L/m_M + m_L/m_H\n            prior = np.ones_like(sigma_val) / 1.5\n            prior[sigma_val > 1.5] = 0.0\n            integrand = like_cosmo * prior * dSigma_dmL\n            \n        total_integral += np.sum(integrand)\n        \n        # Free memory explicitly\n        del dm2_21, dm2_3l, mL, m1, m2, m3, m_L, m_M, m_H, sigma_val, like_cosmo, jacobian, prior, integrand\n        gc.collect()\n        \n    evidence = mL_max * (total_integral / N)\n    return evidence\n\ndef task(args):\n    ds_name, prior, hierarchy, mu, sigma = args\n    seed_str = ds_name + \"_\" + prior + \"_\" + hierarchy\n    seed = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % (2**32)\n    np.random.seed(seed)\n    \n    E = compute_evidence(hierarchy, prior, mu, sigma, N=10000000, chunk_size=100000)\n    return ds_name, prior, hierarchy, E\n\nif __name__ == '__main__':\n    datasets = {\n        'baseline': {'mu': -0.009, 'sigma': 0.036},\n        'plik': {'mu': -0.005, 'sigma': 0.037},\n        'lh': {'mu': -0.012, 'sigma': 0.043},\n        'w0wa': {'mu': 0.047, 'sigma': 0.065},\n        'FC': {'mu': -0.036, 'sigma': 0.043}\n    }\n    \n    priors = ['SJPV', 'HS', 'Flat']\n    hierarchies = ['NH', 'IH']\n    \n    tasks = []\n    for ds_name, ds_params in datasets.items():\n        for prior in priors:\n            for hierarchy in hierarchies:\n                tasks.append((ds_name, prior, hierarchy, ds_params['mu'], ds_params['sigma']))\n                \n    results_dict = {}\n    \n    print(\"Starting Monte Carlo integration for Bayesian Evidence...\")\n    # Reduced max_workers to 4 to prevent memory oversubscription\n    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:\n        for res in executor.map(task, tasks):\n            ds_name, prior, hierarchy, E = res\n            if ds_name not in results_dict:\n                results_dict[ds_name] = {}\n            if prior not in results_dict[ds_name]:\n                results_dict[ds_name][prior] = {}\n            results_dict[ds_name][prior][hierarchy] = E\n\n    final_results = []\n    \n    print(\"\\n\" + \"=\"*70)\n    print(\"BAYESIAN EVIDENCE COMPUTATION RESULTS\")\n    print(\"=\"*70)\n    \n    for ds_name in datasets.keys():\n        for prior in priors:\n            E_NH_base = results_dict[ds_name][prior]['NH']\n            E_IH_base = results_dict[ds_name][prior]['IH']\n            \n            K_base = E_NH_base / E_IH_base\n            \n            delta_chi2 = 6.1\n            E_NH_full = E_NH_base\n            E_IH_full = E_IH_base * np.exp(-delta_chi2 / 2.0)\n            \n            K_full = E_NH_full / E_IH_full\n            \n            print(\"Dataset: \" + ds_name.ljust(10) + \" | Prior: \" + prior.ljust(4))\n            print(\"  E_NH (base) = \" + str(E_NH_base))\n            print(\"  E_IH (base) = \" + str(E_IH_base))\n            print(\"  Bayes Factor K (cosmo+prior) = \" + str(K_base))\n            print(\"  Bayes Factor K (total w/ osc) = \" + str(K_full))\n            print(\"-\" * 70)\n            \n            final_results.append({\n                'dataset': ds_name,\n                'prior': prior,\n                'E_NH_base': E_NH_base,\n                'E_IH_base': E_IH_base,\n                'K_base': K_base,\n                'E_NH_full': E_NH_full,\n                'E_IH_full': E_IH_full,\n                'K_full': K_full\n            })\n            \n    output_filepath = os.path.join(\"data\", \"evidence_results_step_2.json\")\n    with open(output_filepath, 'w') as f:\n        json.dump(final_results, f, indent=4)\n        \n    print(\"\\nResults successfully saved to \" + output_filepath)\n```",
+    "timestamp": "2026-05-01 18:07:22",
+    "cost": {
+      "Agent": [
+        "engineer",
+        "engineer"
+      ],
+      "Model": [
+        "gemini-3.1-pro-preview",
+        "gemini-3.1-pro-preview"
+      ],
+      "Cost": [
+        0.074086,
+        0.162526
+      ],
+      "Prompt Tokens": [
+        14657,
+        40073
+      ],
+      "Completion Tokens": [
+        3731,
+        6865
+      ],
+      "Total Tokens": [
+        18388,
+        46938
+      ]
+    }
+  },
+  {
+    "name": "engineer_response_evaluator",
+    "content": "**Code Explanation:**\n\nThe code implements the Bayesian Evidence Framework to compute the evidence for the Normal Hierarchy (NH) and Inverted Hierarchy (IH) using Monte Carlo integration. 1. Priors: - SJPV Prior: The hierarchical logarithmic prior is computed by analytically integrating out the hyperparameter mu (which results in a Gaussian integral) and numerically integrating over the hyperparameter sigma using the trapezoidal rule. This makes the evaluation highly efficient and vectorized. - HS Prior: The objective Jeffreys-Fisher prior is implemented using the Jacobian of the transformation from the natural oscillation parameters to the individual masses, truncated at Sigma <= 1.5 eV. - Flat Prior: A simple flat prior in Sigma m_nu is implemented as a control case. 2. Likelihoods: - Cosmological Likelihood: Modeled as a Gaussian P(D_cosmo | Sigma) proportional to exp(-(Sigma - mu_0)^2 / 2sigma^2) using the fitted parameters from Step 1 for the baseline, plik, L-H, and w0waCDM datasets, as well as the Feldman-Cousins profile likelihood. - Oscillation Likelihood: Modeled by sampling the mass-squared splittings Delta m^2_21 and Delta m^2_3l directly from their NuFIT 6.0 Gaussian distributions. 3. Monte Carlo Integration: - The integral over the lightest mass m_L is performed using 10^7 Monte Carlo samples. To ensure memory efficiency, the sampling is processed in chunks of 100,000. - The Jacobian of the transformation from (m_1, m_2, m_3) to (m_L, Delta m^2_21, Delta m^2_3l) is rigorously applied. - Multiprocessing (concurrent.futures.ProcessPoolExecutor) is used to compute the evidence for all combinations of datasets, priors, and hierarchies in parallel. 4. Bayes Factors: - The base Bayes factor K_base is computed using only the cosmological data and the normalized oscillation mass-splitting likelihoods. - The total Bayes factor K_full incorporates the Delta chi^2 = 6.1 contribution from the NuFIT 6.0 global fit, applying the multiplicative factor exp(Delta chi^2 / 2). - All intermediate evidence values and Bayes factors are printed to the console and saved to a JSON file for downstream steps.\n\n**Modifications:**\n\nReduced chunk_size to 100,000 to prevent memory exhaustion. Reduced y array size in compute_sjpv_prior to 100. Reduced max_workers to 4. Added gc.collect() inside the Monte Carlo loop.\n\n**Python Code:**\n\n```python\n# filename: codebase/step_2.py\nimport sys\nimport os\nsys.path.insert(0, os.path.abspath(\"codebase\"))\nsys.path.insert(0, \"/home/node/data/compsep_data/\")\nimport json\nimport hashlib\nimport numpy as np\nimport concurrent.futures\nimport gc\nfrom scipy.special import ndtr\n\ndef compute_sjpv_prior(mL, mM, mH):\n    S1 = np.log(mL) + np.log(mM) + np.log(mH)\n    S2 = np.log(mL)**2 + np.log(mM)**2 + np.log(mH)**2\n    V = S2 - (S1**2) / 3.0\n    x_min = np.log(5e-4)\n    x_max = np.log(0.3)\n    y_min = np.log(5e-3)\n    y_max = np.log(20.0)\n    y = np.linspace(y_min, y_max, 100)\n    dy = y[1] - y[0]\n    S1 = S1[:, np.newaxis]\n    V = V[:, np.newaxis]\n    y = y[np.newaxis, :]\n    ey = np.exp(y)\n    e2y = np.exp(2*y)\n    u_max = np.sqrt(3) * (x_max - S1/3.0) / ey\n    u_min = np.sqrt(3) * (x_min - S1/3.0) / ey\n    phi_diff = ndtr(u_max) - ndtr(u_min)\n    log_term1 = -np.log(mL[:, np.newaxis]) - np.log(mM[:, np.newaxis]) - np.log(mH[:, np.newaxis]) - np.log(2 * np.pi * np.sqrt(3)) - 2*y\n    log_term2 = -V / (2 * e2y)\n    log_phi_diff = np.log(np.maximum(phi_diff, 1e-300))\n    log_integrand = log_term1 + log_term2 + log_phi_diff\n    integrand = np.exp(log_integrand)\n    integral = np.trapz(integrand, dx=dy, axis=1)\n    prior_vol = (x_max - x_min) * (y_max - y_min)\n    return integral / prior_vol\n\ndef compute_hs_prior(mL, mM, mH, sigma_val):\n    Z_HS = (1.5**6) / 60.0\n    prior = (4.0 / Z_HS) * (mL*mM + mL*mH + mM*mH)\n    prior[sigma_val > 1.5] = 0.0\n    return prior\n\ndef compute_evidence(hierarchy, prior_type, mu_cosmo, sigma_cosmo, N=10000000, chunk_size=100000):\n    mL_max = 0.8\n    total_integral = 0.0\n    for i in range(0, N, chunk_size):\n        current_chunk = min(chunk_size, N - i)\n        if hierarchy == 'NH':\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(2.513e-3, 0.020e-3, current_chunk)\n        else:\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(-2.484e-3, 0.020e-3, current_chunk)\n        mL = np.random.uniform(1e-6, mL_max, current_chunk)\n        if hierarchy == 'NH':\n            m1 = mL\n            m2 = np.sqrt(m1**2 + dm2_21)\n            m3 = np.sqrt(m1**2 + dm2_3l)\n            m_L, m_M, m_H = m1, m2, m3\n        else:\n            m3 = mL\n            m2 = np.sqrt(m3**2 + np.abs(dm2_3l))\n            m1 = np.sqrt(m3**2 + np.abs(dm2_3l) - dm2_21)\n            m_L, m_M, m_H = m3, m1, m2\n        valid = (m1 > 0) & (m2 > 0) & (m3 > 0)\n        m_L = np.where(valid, m_L, 1e-6)\n        m_M = np.where(valid, m_M, 1e-6)\n        m_H = np.where(valid, m_H, 1e-6)\n        sigma_val = m_L + m_M + m_H\n        like_cosmo = np.exp(-0.5 * ((sigma_val - mu_cosmo) / sigma_cosmo)**2)\n        like_cosmo[~valid] = 0.0\n        jacobian = 1.0 / (4.0 * m_M * m_H)\n        if prior_type == 'SJPV':\n            prior = 6.0 * compute_sjpv_prior(m_L, m_M, m_H)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'HS':\n            prior = compute_hs_prior(m_L, m_M, m_H, sigma_val)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'Flat':\n            dSigma_dmL = 1.0 + m_L/m_M + m_L/m_H\n            prior = np.ones_like(sigma_val) / 1.5\n            prior[sigma_val > 1.5] = 0.0\n            integrand = like_cosmo * prior * dSigma_dmL\n        total_integral += np.sum(integrand)\n        del dm2_21, dm2_3l, mL, m1, m2, m3, m_L, m_M, m_H, sigma_val, like_cosmo, jacobian, prior, integrand\n        gc.collect()\n    evidence = mL_max * (total_integral / N)\n    return evidence\n\ndef task(args):\n    ds_name, prior, hierarchy, mu, sigma = args\n    seed_str = ds_name + \"_\" + prior + \"_\" + hierarchy\n    seed = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % (2**32)\n    np.random.seed(seed)\n    E = compute_evidence(hierarchy, prior, mu, sigma, N=10000000, chunk_size=100000)\n    return ds_name, prior, hierarchy, E\n\nif __name__ == '__main__':\n    datasets = {'baseline': {'mu': -0.009, 'sigma': 0.036}, 'plik': {'mu': -0.005, 'sigma': 0.037}, 'lh': {'mu': -0.012, 'sigma': 0.043}, 'w0wa': {'mu': 0.047, 'sigma': 0.065}, 'FC': {'mu': -0.036, 'sigma': 0.043}}\n    priors = ['SJPV', 'HS', 'Flat']\n    hierarchies = ['NH', 'IH']\n    tasks = []\n    for ds_name, ds_params in datasets.items():\n        for prior in priors:\n            for hierarchy in hierarchies:\n                tasks.append((ds_name, prior, hierarchy, ds_params['mu'], ds_params['sigma']))\n    results_dict = {}\n    print(\"Starting Monte Carlo integration for Bayesian Evidence...\")\n    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:\n        for res in executor.map(task, tasks):\n            ds_name, prior, hierarchy, E = res\n            if ds_name not in results_dict:\n                results_dict[ds_name] = {}\n            if prior not in results_dict[ds_name]:\n                results_dict[ds_name][prior] = {}\n            results_dict[ds_name][prior][hierarchy] = E\n    final_results = []\n    print(\"\\n\" + \"=\"*70)\n    print(\"BAYESIAN EVIDENCE COMPUTATION RESULTS\")\n    print(\"=\"*70)\n    for ds_name in datasets.keys():\n        for prior in priors:\n            E_NH_base = results_dict[ds_name][prior]['NH']\n            E_IH_base = results_dict[ds_name][prior]['IH']\n            K_base = E_NH_base / E_IH_base\n            delta_chi2 = 6.1\n            E_NH_full = E_NH_base\n            E_IH_full = E_IH_base * np.exp(-delta_chi2 / 2.0)\n            K_full = E_NH_full / E_IH_full\n            print(\"Dataset: \" + ds_name.ljust(10) + \" | Prior: \" + prior.ljust(4))\n            print(\"  E_NH (base) = \" + str(E_NH_base))\n            print(\"  E_IH (base) = \" + str(E_IH_base))\n            print(\"  Bayes Factor K (cosmo+prior) = \" + str(K_base))\n            print(\"  Bayes Factor K (total w/ osc) = \" + str(K_full))\n            print(\"-\" * 70)\n            final_results.append({'dataset': ds_name, 'prior': prior, 'E_NH_base': E_NH_base, 'E_IH_base': E_IH_base, 'K_base': K_base, 'E_NH_full': E_NH_full, 'E_IH_full': E_IH_full, 'K_full': K_full})\n    output_filepath = os.path.join(\"data\", \"evidence_results_step_2.json\")\n    with open(output_filepath, 'w') as f:\n        json.dump(final_results, f, indent=4)\n    print(\"\\nResults successfully saved to \" + output_filepath)\n```",
+    "timestamp": "2026-05-01 18:07:30",
+    "cost": {
+      "Agent": [
+        "engineer_response_evaluator",
+        "engineer_response_evaluator"
+      ],
+      "Model": [
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3.1-flash-lite-preview"
+      ],
+      "Cost": [
+        0.007070250000000001,
+        0.016775500000000002
+      ],
+      "Prompt Tokens": [
+        9495,
+        29152
+      ],
+      "Completion Tokens": [
+        3131,
+        6325
+      ],
+      "Total Tokens": [
+        12626,
+        35477
+      ]
+    }
+  },
+  {
+    "name": "executor",
+    "content": "execution results:\nExecution output: \nStarting Monte Carlo integration for Bayesian Evidence...\nconcurrent.futures.process._RemoteTraceback: \n\"\"\"\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.12/concurrent/futures/process.py\", line 264, in _process_worker\n    r = call_item.fn(*call_item.args, **call_item.kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/process.py\", line 213, in _process_chunk\n    return [fn(*args) for args in chunk]\n            ^^^^^^^^^\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 98, in task\n    E = compute_evidence(hierarchy, prior, mu, sigma, N=10000000, chunk_size=100000)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 77, in compute_evidence\n    prior = 6.0 * compute_sjpv_prior(m_L, m_M, m_H)\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 36, in compute_sjpv_prior\n    integral = np.trapz(integrand, dx=dy, axis=1)\n               ^^^^^^^^\n  File \"/opt/denario-venv/lib/python3.12/site-packages/numpy/__init__.py\", line 792, in __getattr__\n    raise AttributeError(f\"module {__name__!r} has no attribute {attr!r}\")\nAttributeError: module 'numpy' has no attribute 'trapz'. Did you mean: 'trace'?\n\"\"\"\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 113, in <module>\n    for res in executor.map(task, tasks):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/process.py\", line 636, in _chain_from_iterable_of_lists\n    for element in iterable:\n                   ^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 619, in result_iterator\n    yield _result_or_cancel(fs.pop())\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 317, in _result_or_cancel\n    return fut.result(timeout)\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 456, in result\n    return self.__get_result()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 401, in __get_result\n    raise self._exception\nAttributeError: module 'numpy' has no attribute 'trapz'\n",
+    "timestamp": "2026-05-01 18:07:34",
+    "cost": {
+      "Agent": [],
+      "Model": [],
+      "Cost": [],
+      "Prompt Tokens": [],
+      "Completion Tokens": [],
+      "Total Tokens": []
+    }
+  },
+  {
+    "name": "execution_recorder",
+    "content": "Code execution recorded.\n\nExecution output:\nexecution results:\nExecution output: \nStarting Monte Carlo integration for Bayesian Evidence...\nconcurrent.futures.process._RemoteTraceback: \n\"\"\"\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.12/concurrent/futures/process.py\", line 264, in _process_worker\n    r = call_item.fn(*call_item.args, **call_item.kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/process.py\", line 213, in _process_chunk\n    return [fn(*args) for args in chunk]\n            ^^^^^^^^^\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 98, in task\n    E = compute_evidence(hierarchy, prior, mu, sigma, N=10000000, chunk_size=100000)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 77, in compute_evidence\n    prior = 6.0 * compute_sjpv_prior(m_L, m_M, m_H)\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 36, in compute_sjpv_prior\n    integral = np.trapz(integrand, dx=dy, axis=1)\n               ^^^^^^^^\n  File \"/opt/denario-venv/lib/python3.12/site-packages/numpy/__init__.py\", line 792, in __getattr__\n    raise AttributeError(f\"module {__name__!r} has no attribute {attr!r}\")\nAttributeError: module 'numpy' has no attribute 'trapz'. Did you mean: 'trace'?\n\"\"\"\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 113, in <module>\n    for res in executor.map(task, tasks):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/process.py\", line 636, in _chain_from_iterable_of_lists\n    for element in iterable:\n                   ^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 619, in result_iterator\n    yield _result_or_cancel(fs.pop())\n          ^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 317, in _result_or_cancel\n    return fut.result(timeout)\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 456, in result\n    return self.__get_result()\n           ^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/_base.py\", line 401, in __get_result\n    raise self._exception\nAttributeError: module 'numpy' has no attribute 'trapz'\n",
+    "timestamp": "2026-05-01 18:07:34",
+    "cost": {
+      "Agent": [],
+      "Model": [],
+      "Cost": [],
+      "Prompt Tokens": [],
+      "Completion Tokens": [],
+      "Total Tokens": []
+    }
+  },
+  {
+    "name": "executor_response_evaluator",
+    "content": "",
+    "timestamp": "2026-05-01 18:07:35",
+    "cost": {
+      "Agent": [
+        "executor_response_evaluator",
+        "executor_response_evaluator"
+      ],
+      "Model": [
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3.1-flash-lite-preview"
+      ],
+      "Cost": [
+        0.0004535,
+        0.0010127500000000002
+      ],
+      "Prompt Tokens": [
+        1112,
+        2731
+      ],
+      "Completion Tokens": [
+        117,
+        220
+      ],
+      "Total Tokens": [
+        1229,
+        2951
+      ]
+    }
+  },
+  {
+    "name": "_Group_Tool_Executor",
+    "content": "Code execution status: failure. Transfer to engineer.\n\nxxxxxxxxxxxxxxxxxxxxxxxxxx\n\nWorkflow status:\n\nPlan step number: 2\n\nAgent for sub-task (might be different from the next agent suggestion for debugging): engineer\n\nStep status (before execution): in progress\n\nCode status: failure\n\nxxxxxxxxxxxxxxxxxxxxxxxxxx\n\n\n**Attempt 2 of 10 (8 remaining).** Previous errors on this step:\n  1. raise self._exception\n\nThe failed code was:\n\n```python\n# filename: codebase/step_2.py\nimport sys\nimport os\nsys.path.insert(0, os.path.abspath(\"codebase\"))\nsys.path.insert(0, \"/home/node/data/compsep_data/\")\nimport json\nimport hashlib\nimport numpy as np\nimport concurrent.futures\nimport gc\nfrom scipy.special import ndtr\n\ndef compute_sjpv_prior(mL, mM, mH):\n    S1 = np.log(mL) + np.log(mM) + np.log(mH)\n    S2 = np.log(mL)**2 + np.log(mM)**2 + np.log(mH)**2\n    V = S2 - (S1**2) / 3.0\n    x_min = np.log(5e-4)\n    x_max = np.log(0.3)\n    y_min = np.log(5e-3)\n    y_max = np.log(20.0)\n    y = np.linspace(y_min, y_max, 100)\n    dy = y[1] - y[0]\n    S1 = S1[:, np.newaxis]\n    V = V[:, np.newaxis]\n    y = y[np.newaxis, :]\n    ey = np.exp(y)\n    e2y = np.exp(2*y)\n    u_max = np.sqrt(3) * (x_max - S1/3.0) / ey\n    u_min = np.sqrt(3) * (x_min - S1/3.0) / ey\n    phi_diff = ndtr(u_max) - ndtr(u_min)\n    log_term1 = -np.log(mL[:, np.newaxis]) - np.log(mM[:, np.newaxis]) - np.log(mH[:, np.newaxis]) - np.log(2 * np.pi * np.sqrt(3)) - 2*y\n    log_term2 = -V / (2 * e2y)\n    log_phi_diff = np.log(np.maximum(phi_diff, 1e-300))\n    log_integrand = log_term1 + log_term2 + log_phi_diff\n    integrand = np.exp(log_integrand)\n    integral = np.trapz(integrand, dx=dy, axis=1)\n    prior_vol = (x_max - x_min) * (y_max - y_min)\n    return integral / prior_vol\n\ndef compute_hs_prior(mL, mM, mH, sigma_val):\n    Z_HS = (1.5**6) / 60.0\n    prior = (4.0 / Z_HS) * (mL*mM + mL*mH + mM*mH)\n    prior[sigma_val > 1.5] = 0.0\n    return prior\n\ndef compute_evidence(hierarchy, prior_type, mu_cosmo, sigma_cosmo, N=10000000, chunk_size=100000):\n    mL_max = 0.8\n    total_integral = 0.0\n    for i in range(0, N, chunk_size):\n        current_chunk = min(chunk_size, N - i)\n        if hierarchy == 'NH':\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(2.513e-3, 0.020e-3, current_chunk)\n        else:\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(-2.484e-3, 0.020e-3, current_chunk)\n        mL = np.random.uniform(1e-6, mL_max, current_chunk)\n        if hierarchy == 'NH':\n            m1 = mL\n            m2 = np.sqrt(m1**2 + dm2_21)\n            m3 = np.sqrt(m1**2 + dm2_3l)\n            m_L, m_M, m_H = m1, m2, m3\n        else:\n            m3 = mL\n            m2 = np.sqrt(m3**2 + np.abs(dm2_3l))\n            m1 = np.sqrt(m3**2 + np.abs(dm2_3l) - dm2_21)\n            m_L, m_M, m_H = m3, m1, m2\n        valid = (m1 > 0) & (m2 > 0) & (m3 > 0)\n        m_L = np.where(valid, m_L, 1e-6)\n        m_M = np.where(valid, m_M, 1e-6)\n        m_H = np.where(valid, m_H, 1e-6)\n        sigma_val = m_L + m_M + m_H\n        like_cosmo = np.exp(-0.5 * ((sigma_val - mu_cosmo) / sigma_cosmo)**2)\n        like_cosmo[~valid] = 0.0\n        jacobian = 1.0 / (4.0 * m_M * m_H)\n        if prior_type == 'SJPV':\n            prior = 6.0 * compute_sjpv_prior(m_L, m_M, m_H)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'HS':\n            prior = compute_hs_prior(m_L, m_M, m_H, sigma_val)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'Flat':\n            dSigma_dmL = 1.0 + m_L/m_M + m_L/m_H\n            prior = np.ones_like(sigma_val) / 1.5\n            prior[sigma_val > 1.5] = 0.0\n            integrand = like_cosmo * prior * dSigma_dmL\n        total_integral += np.sum(integrand)\n        del dm2_21, dm2_3l, mL, m1, m2, m3, m_L, m_M, m_H, sigma_val, like_cosmo, jacobian, prior, integrand\n        gc.collect()\n    evidence = mL_max * (total_integral / N)\n    return evidence\n\ndef task(args):\n    ds_name, prior, hierarchy, mu, sigma = args\n    seed_str = ds_name + \"_\" + prior + \"_\" + hierarchy\n    seed = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % (2**32)\n    np.random.seed(seed)\n    E = compute_evidence(hierarchy, prior, mu, sigma, N=10000000, chunk_size=100000)\n    return ds_name, prior, hierarchy, E\n\nif __name__ == '__main__':\n    datasets = {'baseline': {'mu': -0.009, 'sigma': 0.036}, 'plik': {'mu': -0.005, 'sigma': 0.037}, 'lh': {'mu': -0.012, 'sigma': 0.043}, 'w0wa': {'mu': 0.047, 'sigma': 0.065}, 'FC': {'mu': -0.036, 'sigma': 0.043}}\n    priors = ['SJPV', 'HS', 'Flat']\n    hierarchies = ['NH', 'IH']\n    tasks = []\n    for ds_name, ds_params in datasets.items():\n        for prior in priors:\n            for hierarchy in hierarchies:\n                tasks.append((ds_name, prior, hierarchy, ds_params['mu'], ds_params['sigma']))\n    results_dict = {}\n    print(\"Starting Monte Carlo integration for Bayesian Evidence...\")\n    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:\n        for res in executor.map(task, tasks):\n            ds_name, prior, hierarchy, E = res\n            if ds_name not in results_dict:\n                results_dict[ds_name] = {}\n            if prior not in results_dict[ds_name]:\n                results_dict[ds_name][prior] = {}\n            results_dict[ds_name][prior][hierarchy] = E\n    final_results = []\n    print(\"\\n\" + \"=\"*70)\n    print(\"BAYESIAN EVIDENCE COMPUTATION RESULTS\")\n    print(\"=\"*70)\n    for ds_name in datasets.keys():\n        for prior in priors:\n            E_NH_base = results_dict[ds_name][prior]['NH']\n            E_IH_base = results_dict[ds_name][prior]['IH']\n            K_base = E_NH_base / E_IH_base\n            delta_chi2 = 6.1\n            E_NH_full = E_NH_base\n            E_IH_full = E_IH_base * np.exp(-delta_chi2 / 2.0)\n            K_full = E_NH_full / E_IH_full\n            print(\"Dataset: \" + ds_name.ljust(10) + \" | Prior: \" + prior.ljust(4))\n            print(\"  E_NH (base) = \" + str(E_NH_base))\n            print(\"  E_IH (base) = \" + str(E_IH_base))\n            print(\"  Bayes Factor K (cosmo+prior) = \" + str(K_base))\n            print(\"  Bayes Factor K (total w/ osc) = \" + str(K_full))\n            print(\"-\" * 70)\n            final_results.append({'dataset': ds_name, 'prior': prior, 'E_NH_base': E_NH_base, 'E_IH_base': E_IH_base, 'K_base': K_base, 'E_NH_full': E_NH_full, 'E_IH_full': E_IH_full, 'K_full': K_full})\n    output_filepath = os.path.join(\"data\", \"evidence_results_step_2.json\")\n    with open(output_filepath, 'w') as f:\n        json.dump(final_results, f, indent=4)\n    print(\"\\nResults successfully saved to \" + output_filepath)\n```\n\nExecution output:\n\nexecution results:\nExecution output: \nStarting Monte Carlo integration for Bayesian Evidence...\nconcurrent.futures.process._RemoteTraceback: \n\"\"\"\nTraceback (most recent call last):\n  File \"/usr/local/lib/python3.12/concurrent/futures/process.py\", line 264, in _process_worker\n    r = call_item.fn(*call_item.args, **call_item.kwargs)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/process.py\", line 213, in _process_chunk\n    return [fn(*args) for args in chunk]\n            ^^^^^^^^^\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 98, in task\n    E = compute_evidence(hierarchy, prior, mu, sigma, N=10000000, chunk_size=100000)\n        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 77, in compute_evidence\n    prior = 6.0 * compute_sjpv_prior(m_L, m_M, m_H)\n                  ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 36, in compute_sjpv_prior\n    integral = np.trapz(integrand, dx=dy, axis=1)\n               ^^^^^^^^\n  File \"/opt/denario-venv/lib/python3.12/site-packages/numpy/__init__.py\", line 792, in __getattr__\n    raise AttributeError(f\"module {__name__!r} has no attribute {attr!r}\")\nAttributeError: module 'numpy' has no attribute 'trapz'. Did you mean: 'trace'?\n\"\"\"\n\nThe above exception was the direct cause of the following exception:\n\nTraceback (most recent call last):\n  File \"/home/node/work/projects/neutrino_hierarchy_desi_dr2/Iteration0/experiment_output/control/codebase/step_2.py\", line 113, in <module>\n    for res in executor.map(task, tasks):\n               ^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/usr/local/lib/python3.12/concurrent/futures/process.py\", line 636, in _\n... (truncated)\n\nFix suggestion: The error 'AttributeError: module 'numpy' has no attribute 'trapz'' occurs because np.trapz has been removed in recent versions of NumPy. It should be replaced with scipy.integrate.trapezoid. I will update the code to use scipy.integrate.trapezoid instead of np.trapz.\n",
+    "timestamp": "2026-05-01 18:07:35",
+    "cost": {
+      "Agent": [],
+      "Model": [],
+      "Cost": [],
+      "Prompt Tokens": [],
+      "Completion Tokens": [],
+      "Total Tokens": []
+    }
+  },
+  {
+    "name": "engineer",
+    "content": "**Code Explanation:**\n\nThe error `AttributeError: module 'numpy' has no attribute 'trapz'` occurs because `np.trapz` was deprecated in NumPy 1.20 and removed in NumPy 2.0. The correct replacement is `scipy.integrate.trapezoid`.\n\nI have updated the code to import `trapezoid` from `scipy.integrate` and replaced `np.trapz` with `trapezoid`. The rest of the Bayesian Evidence Framework implementation remains the same, computing the evidence for NH and IH using Monte Carlo integration over the SJPV, HS, and Flat priors, and outputting the Bayes factors.\n\n**Modifications:**\n- Imported `trapezoid` from `scipy.integrate`.\n- Replaced `np.trapz(integrand, dx=dy, axis=1)` with `trapezoid(integrand, dx=dy, axis=1)`.\n\n**Python Code:**\n\n```python\nimport os\nimport json\nimport hashlib\nimport numpy as np\nimport concurrent.futures\nimport gc\nfrom scipy.special import ndtr\nfrom scipy.integrate import trapezoid\n\ndef compute_sjpv_prior(mL, mM, mH):\n    \"\"\"\n    Computes the SJPV (Hierarchical Logarithmic) prior for a given set of masses.\n    Marginalizes over the hyperparameters mu and sigma.\n    \"\"\"\n    S1 = np.log(mL) + np.log(mM) + np.log(mH)\n    S2 = np.log(mL)**2 + np.log(mM)**2 + np.log(mH)**2\n    V = S2 - (S1**2) / 3.0\n    \n    x_min = np.log(5e-4)\n    x_max = np.log(0.3)\n    y_min = np.log(5e-3)\n    y_max = np.log(20.0)\n    \n    y = np.linspace(y_min, y_max, 100)\n    dy = y[1] - y[0]\n    \n    S1 = S1[:, np.newaxis]\n    V = V[:, np.newaxis]\n    y = y[np.newaxis, :]\n    \n    ey = np.exp(y)\n    e2y = np.exp(2*y)\n    \n    u_max = np.sqrt(3) * (x_max - S1/3.0) / ey\n    u_min = np.sqrt(3) * (x_min - S1/3.0) / ey\n    \n    phi_diff = ndtr(u_max) - ndtr(u_min)\n    \n    log_term1 = -np.log(mL[:, np.newaxis]) - np.log(mM[:, np.newaxis]) - np.log(mH[:, np.newaxis]) \\\n                - np.log(2 * np.pi * np.sqrt(3)) - 2*y\n    log_term2 = -V / (2 * e2y)\n    \n    log_phi_diff = np.log(np.maximum(phi_diff, 1e-300))\n    \n    log_integrand = log_term1 + log_term2 + log_phi_diff\n    integrand = np.exp(log_integrand)\n    \n    integral = trapezoid(integrand, dx=dy, axis=1)\n    prior_vol = (x_max - x_min) * (y_max - y_min)\n    \n    return integral / prior_vol\n\ndef compute_hs_prior(mL, mM, mH, sigma_val):\n    \"\"\"\n    Computes the HS (Objective Bayesian / Jeffreys-Fisher) prior.\n    \"\"\"\n    Z_HS = (1.5**6) / 60.0\n    prior = (4.0 / Z_HS) * (mL*mM + mL*mH + mM*mH)\n    prior[sigma_val > 1.5] = 0.0\n    return prior\n\ndef compute_evidence(hierarchy, prior_type, mu_cosmo, sigma_cosmo, N=10000000, chunk_size=100000):\n    \"\"\"\n    Computes the Bayesian evidence for a given hierarchy and prior using Monte Carlo integration.\n    \"\"\"\n    mL_max = 0.8\n    total_integral = 0.0\n    \n    for i in range(0, N, chunk_size):\n        current_chunk = min(chunk_size, N - i)\n        \n        if hierarchy == 'NH':\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(2.513e-3, 0.020e-3, current_chunk)\n        else:\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(-2.484e-3, 0.020e-3, current_chunk)\n            \n        mL = np.random.uniform(1e-6, mL_max, current_chunk)\n        \n        if hierarchy == 'NH':\n            m1 = mL\n            m2 = np.sqrt(m1**2 + dm2_21)\n            m3 = np.sqrt(m1**2 + dm2_3l)\n            m_L, m_M, m_H = m1, m2, m3\n        else:\n            m3 = mL\n            m2 = np.sqrt(m3**2 + np.abs(dm2_3l))\n            m1 = np.sqrt(m3**2 + np.abs(dm2_3l) - dm2_21)\n            m_L, m_M, m_H = m3, m1, m2\n            \n        valid = (m1 > 0) & (m2 > 0) & (m3 > 0)\n        m_L = np.where(valid, m_L, 1e-6)\n        m_M = np.where(valid, m_M, 1e-6)\n        m_H = np.where(valid, m_H, 1e-6)\n        \n        sigma_val = m_L + m_M + m_H\n        \n        like_cosmo = np.exp(-0.5 * ((sigma_val - mu_cosmo) / sigma_cosmo)**2)\n        like_cosmo[~valid] = 0.0\n        \n        jacobian = 1.0 / (4.0 * m_M * m_H)\n        \n        if prior_type == 'SJPV':\n            prior = 6.0 * compute_sjpv_prior(m_L, m_M, m_H)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'HS':\n            prior = compute_hs_prior(m_L, m_M, m_H, sigma_val)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'Flat':\n            dSigma_dmL = 1.0 + m_L/m_M + m_L/m_H\n            prior = np.ones_like(sigma_val) / 1.5\n            prior[sigma_val > 1.5] = 0.0\n            integrand = like_cosmo * prior * dSigma_dmL\n            \n        total_integral += np.sum(integrand)\n        \n        del dm2_21, dm2_3l, mL, m1, m2, m3, m_L, m_M, m_H, sigma_val, like_cosmo, jacobian, prior, integrand\n        gc.collect()\n        \n    evidence = mL_max * (total_integral / N)\n    return evidence\n\ndef task(args):\n    ds_name, prior, hierarchy, mu, sigma = args\n    seed_str = ds_name + \"_\" + prior + \"_\" + hierarchy\n    seed = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % (2**32)\n    np.random.seed(seed)\n    \n    E = compute_evidence(hierarchy, prior, mu, sigma, N=10000000, chunk_size=100000)\n    return ds_name, prior, hierarchy, E\n\nif __name__ == '__main__':\n    datasets = {\n        'baseline': {'mu': -0.009, 'sigma': 0.036},\n        'plik': {'mu': -0.005, 'sigma': 0.037},\n        'lh': {'mu': -0.012, 'sigma': 0.043},\n        'w0wa': {'mu': 0.047, 'sigma': 0.065},\n        'FC': {'mu': -0.036, 'sigma': 0.043}\n    }\n    \n    priors = ['SJPV', 'HS', 'Flat']\n    hierarchies = ['NH', 'IH']\n    \n    tasks = []\n    for ds_name, ds_params in datasets.items():\n        for prior in priors:\n            for hierarchy in hierarchies:\n                tasks.append((ds_name, prior, hierarchy, ds_params['mu'], ds_params['sigma']))\n                \n    results_dict = {}\n    \n    print(\"Starting Monte Carlo integration for Bayesian Evidence...\")\n    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:\n        for res in executor.map(task, tasks):\n            ds_name, prior, hierarchy, E = res\n            if ds_name not in results_dict:\n                results_dict[ds_name] = {}\n            if prior not in results_dict[ds_name]:\n                results_dict[ds_name][prior] = {}\n            results_dict[ds_name][prior][hierarchy] = E\n\n    final_results = []\n    \n    print(\"\\n\" + \"=\"*70)\n    print(\"BAYESIAN EVIDENCE COMPUTATION RESULTS\")\n    print(\"=\"*70)\n    \n    for ds_name in datasets.keys():\n        for prior in priors:\n            E_NH_base = results_dict[ds_name][prior]['NH']\n            E_IH_base = results_dict[ds_name][prior]['IH']\n            \n            K_base = E_NH_base / E_IH_base\n            \n            delta_chi2 = 6.1\n            E_NH_full = E_NH_base\n            E_IH_full = E_IH_base * np.exp(-delta_chi2 / 2.0)\n            \n            K_full = E_NH_full / E_IH_full\n            \n            print(\"Dataset: \" + ds_name.ljust(10) + \" | Prior: \" + prior.ljust(4))\n            print(\"  E_NH (base) = \" + str(E_NH_base))\n            print(\"  E_IH (base) = \" + str(E_IH_base))\n            print(\"  Bayes Factor K (cosmo+prior) = \" + str(K_base))\n            print(\"  Bayes Factor K (total w/ osc) = \" + str(K_full))\n            print(\"-\" * 70)\n            \n            final_results.append({\n                'dataset': ds_name,\n                'prior': prior,\n                'E_NH_base': E_NH_base,\n                'E_IH_base': E_IH_base,\n                'K_base': K_base,\n                'E_NH_full': E_NH_full,\n                'E_IH_full': E_IH_full,\n                'K_full': K_full\n            })\n            \n    output_filepath = os.path.join(\"data\", \"evidence_results_step_2.json\")\n    with open(output_filepath, 'w') as f:\n        json.dump(final_results, f, indent=4)\n        \n    print(\"\\nResults successfully saved to \" + output_filepath)\n```",
+    "timestamp": "2026-05-01 18:07:55",
+    "cost": {
+      "Agent": [
+        "engineer",
+        "engineer",
+        "engineer"
+      ],
+      "Model": [
+        "gemini-3.1-pro-preview",
+        "gemini-3.1-pro-preview",
+        "gemini-3.1-pro-preview"
+      ],
+      "Cost": [
+        0.074086,
+        0.162526,
+        0.27140600000000004
+      ],
+      "Prompt Tokens": [
+        14657,
+        40073,
+        77047
+      ],
+      "Completion Tokens": [
+        3731,
+        6865,
+        9776
+      ],
+      "Total Tokens": [
+        18388,
+        46938,
+        86823
+      ]
+    }
+  },
+  {
+    "name": "engineer_response_evaluator",
+    "content": "**Code Explanation:**\n\nThe code implements the Bayesian Evidence Framework to compute the evidence for the Normal Hierarchy (NH) and Inverted Hierarchy (IH) using Monte Carlo integration. 1. Priors: - SJPV Prior: The hierarchical logarithmic prior is computed by analytically integrating out the hyperparameter mu (which results in a Gaussian integral) and numerically integrating over the hyperparameter sigma using the trapezoidal rule. This makes the evaluation highly efficient and vectorized. - HS Prior: The objective Jeffreys-Fisher prior is implemented using the Jacobian of the transformation from the natural oscillation parameters to the individual masses, truncated at Sigma <= 1.5 eV. - Flat Prior: A simple flat prior in Sigma m_nu is implemented as a control case. 2. Likelihoods: - Cosmological Likelihood: Modeled as a Gaussian P(D_cosmo | Sigma) proportional to exp(-(Sigma - mu_0)^2 / 2sigma^2) using the fitted parameters from Step 1 for the baseline, plik, L-H, and w0waCDM datasets, as well as the Feldman-Cousins profile likelihood. - Oscillation Likelihood: Modeled by sampling the mass-squared splittings Delta m^2_21 and Delta m^2_3l directly from their NuFIT 6.0 Gaussian distributions. 3. Monte Carlo Integration: - The integral over the lightest mass m_L is performed using 10^7 Monte Carlo samples. To ensure memory efficiency, the sampling is processed in chunks of 100,000. - The Jacobian of the transformation from (m_1, m_2, m_3) to (m_L, Delta m^2_21, Delta m^2_3l) is rigorously applied. - Multiprocessing (concurrent.futures.ProcessPoolExecutor) is used to compute the evidence for all combinations of datasets, priors, and hierarchies in parallel. 4. Bayes Factors: - The base Bayes factor K_base is computed using only the cosmological data and the normalized oscillation mass-splitting likelihoods. - The total Bayes factor K_full incorporates the Delta chi^2 = 6.1 contribution from the NuFIT 6.0 global fit, applying the multiplicative factor exp(Delta chi^2 / 2). - All intermediate evidence values and Bayes factors are printed to the console and saved to a JSON file for downstream steps.\n\n**Modifications:**\n\nReplaced np.trapz with scipy.integrate.trapezoid to ensure compatibility with NumPy 2.0+.\n\n**Python Code:**\n\n```python\n# filename: codebase/step_2.py\nimport sys\nimport os\nsys.path.insert(0, os.path.abspath(\"codebase\"))\nsys.path.insert(0, \"/home/node/data/compsep_data/\")\nimport json\nimport hashlib\nimport numpy as np\nimport concurrent.futures\nimport gc\nfrom scipy.special import ndtr\nfrom scipy.integrate import trapezoid\n\ndef compute_sjpv_prior(mL, mM, mH):\n    S1 = np.log(mL) + np.log(mM) + np.log(mH)\n    S2 = np.log(mL)**2 + np.log(mM)**2 + np.log(mH)**2\n    V = S2 - (S1**2) / 3.0\n    x_min = np.log(5e-4)\n    x_max = np.log(0.3)\n    y_min = np.log(5e-3)\n    y_max = np.log(20.0)\n    y = np.linspace(y_min, y_max, 100)\n    dy = y[1] - y[0]\n    S1 = S1[:, np.newaxis]\n    V = V[:, np.newaxis]\n    y = y[np.newaxis, :]\n    ey = np.exp(y)\n    e2y = np.exp(2*y)\n    u_max = np.sqrt(3) * (x_max - S1/3.0) / ey\n    u_min = np.sqrt(3) * (x_min - S1/3.0) / ey\n    phi_diff = ndtr(u_max) - ndtr(u_min)\n    log_term1 = -np.log(mL[:, np.newaxis]) - np.log(mM[:, np.newaxis]) - np.log(mH[:, np.newaxis]) - np.log(2 * np.pi * np.sqrt(3)) - 2*y\n    log_term2 = -V / (2 * e2y)\n    log_phi_diff = np.log(np.maximum(phi_diff, 1e-300))\n    log_integrand = log_term1 + log_term2 + log_phi_diff\n    integrand = np.exp(log_integrand)\n    integral = trapezoid(integrand, dx=dy, axis=1)\n    prior_vol = (x_max - x_min) * (y_max - y_min)\n    return integral / prior_vol\n\ndef compute_hs_prior(mL, mM, mH, sigma_val):\n    Z_HS = (1.5**6) / 60.0\n    prior = (4.0 / Z_HS) * (mL*mM + mL*mH + mM*mH)\n    prior[sigma_val > 1.5] = 0.0\n    return prior\n\ndef compute_evidence(hierarchy, prior_type, mu_cosmo, sigma_cosmo, N=10000000, chunk_size=100000):\n    mL_max = 0.8\n    total_integral = 0.0\n    for i in range(0, N, chunk_size):\n        current_chunk = min(chunk_size, N - i)\n        if hierarchy == 'NH':\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(2.513e-3, 0.020e-3, current_chunk)\n        else:\n            dm2_21 = np.random.normal(7.49e-5, 0.19e-5, current_chunk)\n            dm2_3l = np.random.normal(-2.484e-3, 0.020e-3, current_chunk)\n        mL = np.random.uniform(1e-6, mL_max, current_chunk)\n        if hierarchy == 'NH':\n            m1 = mL\n            m2 = np.sqrt(m1**2 + dm2_21)\n            m3 = np.sqrt(m1**2 + dm2_3l)\n            m_L, m_M, m_H = m1, m2, m3\n        else:\n            m3 = mL\n            m2 = np.sqrt(m3**2 + np.abs(dm2_3l))\n            m1 = np.sqrt(m3**2 + np.abs(dm2_3l) - dm2_21)\n            m_L, m_M, m_H = m3, m1, m2\n        valid = (m1 > 0) & (m2 > 0) & (m3 > 0)\n        m_L = np.where(valid, m_L, 1e-6)\n        m_M = np.where(valid, m_M, 1e-6)\n        m_H = np.where(valid, m_H, 1e-6)\n        sigma_val = m_L + m_M + m_H\n        like_cosmo = np.exp(-0.5 * ((sigma_val - mu_cosmo) / sigma_cosmo)**2)\n        like_cosmo[~valid] = 0.0\n        jacobian = 1.0 / (4.0 * m_M * m_H)\n        if prior_type == 'SJPV':\n            prior = 6.0 * compute_sjpv_prior(m_L, m_M, m_H)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'HS':\n            prior = compute_hs_prior(m_L, m_M, m_H, sigma_val)\n            integrand = like_cosmo * prior * jacobian\n        elif prior_type == 'Flat':\n            dSigma_dmL = 1.0 + m_L/m_M + m_L/m_H\n            prior = np.ones_like(sigma_val) / 1.5\n            prior[sigma_val > 1.5] = 0.0\n            integrand = like_cosmo * prior * dSigma_dmL\n        total_integral += np.sum(integrand)\n        del dm2_21, dm2_3l, mL, m1, m2, m3, m_L, m_M, m_H, sigma_val, like_cosmo, jacobian, prior, integrand\n        gc.collect()\n    evidence = mL_max * (total_integral / N)\n    return evidence\n\ndef task(args):\n    ds_name, prior, hierarchy, mu, sigma = args\n    seed_str = ds_name + \"_\" + prior + \"_\" + hierarchy\n    seed = int(hashlib.md5(seed_str.encode()).hexdigest(), 16) % (2**32)\n    np.random.seed(seed)\n    E = compute_evidence(hierarchy, prior, mu, sigma, N=10000000, chunk_size=100000)\n    return ds_name, prior, hierarchy, E\n\nif __name__ == '__main__':\n    datasets = {'baseline': {'mu': -0.009, 'sigma': 0.036}, 'plik': {'mu': -0.005, 'sigma': 0.037}, 'lh': {'mu': -0.012, 'sigma': 0.043}, 'w0wa': {'mu': 0.047, 'sigma': 0.065}, 'FC': {'mu': -0.036, 'sigma': 0.043}}\n    priors = ['SJPV', 'HS', 'Flat']\n    hierarchies = ['NH', 'IH']\n    tasks = []\n    for ds_name, ds_params in datasets.items():\n        for prior in priors:\n            for hierarchy in hierarchies:\n                tasks.append((ds_name, prior, hierarchy, ds_params['mu'], ds_params['sigma']))\n    results_dict = {}\n    print(\"Starting Monte Carlo integration for Bayesian Evidence...\")\n    with concurrent.futures.ProcessPoolExecutor(max_workers=4) as executor:\n        for res in executor.map(task, tasks):\n            ds_name, prior, hierarchy, E = res\n            if ds_name not in results_dict:\n                results_dict[ds_name] = {}\n            if prior not in results_dict[ds_name]:\n                results_dict[ds_name][prior] = {}\n            results_dict[ds_name][prior][hierarchy] = E\n    final_results = []\n    print(\"\\n\" + \"=\"*70)\n    print(\"BAYESIAN EVIDENCE COMPUTATION RESULTS\")\n    print(\"=\"*70)\n    for ds_name in datasets.keys():\n        for prior in priors:\n            E_NH_base = results_dict[ds_name][prior]['NH']\n            E_IH_base = results_dict[ds_name][prior]['IH']\n            K_base = E_NH_base / E_IH_base\n            delta_chi2 = 6.1\n            E_NH_full = E_NH_base\n            E_IH_full = E_IH_base * np.exp(-delta_chi2 / 2.0)\n            K_full = E_NH_full / E_IH_full\n            print(\"Dataset: \" + ds_name.ljust(10) + \" | Prior: \" + prior.ljust(4))\n            print(\"  E_NH (base) = \" + str(E_NH_base))\n            print(\"  E_IH (base) = \" + str(E_IH_base))\n            print(\"  Bayes Factor K (cosmo+prior) = \" + str(K_base))\n            print(\"  Bayes Factor K (total w/ osc) = \" + str(K_full))\n            print(\"-\" * 70)\n            final_results.append({'dataset': ds_name, 'prior': prior, 'E_NH_base': E_NH_base, 'E_IH_base': E_IH_base, 'K_base': K_base, 'E_NH_full': E_NH_full, 'E_IH_full': E_IH_full, 'K_full': K_full})\n    output_filepath = os.path.join(\"data\", \"evidence_results_step_2.json\")\n    with open(output_filepath, 'w') as f:\n        json.dump(final_results, f, indent=4)\n    print(\"\\nResults successfully saved to \" + output_filepath)\n```",
+    "timestamp": "2026-05-01 18:08:05",
+    "cost": {
+      "Agent": [
+        "engineer_response_evaluator",
+        "engineer_response_evaluator",
+        "engineer_response_evaluator"
+      ],
+      "Model": [
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3.1-flash-lite-preview"
+      ],
+      "Cost": [
+        0.007070250000000001,
+        0.016775500000000002,
+        0.029281500000000002
+      ],
+      "Prompt Tokens": [
+        9495,
+        29152,
+        60144
+      ],
+      "Completion Tokens": [
+        3131,
+        6325,
+        9497
+      ],
+      "Total Tokens": [
+        12626,
+        35477,
+        69641
+      ]
+    }
+  },
+  {
+    "name": "executor",
+    "content": "Execution results:\n\nExecution output: \nStarting Monte Carlo integration for Bayesian Evidence...\n\n======================================================================\nBAYESIAN EVIDENCE COMPUTATION RESULTS\n======================================================================\nDataset: baseline   | Prior: SJPV\n  E_NH (base) = 1421.6916532931352\n  E_IH (base) = 2.934061080151654\n  Bayes Factor K (cosmo+prior) = 484.54739504593124\n  Bayes Factor K (total w/ osc) = 10231.385135439685\n----------------------------------------------------------------------\nDataset: baseline   | Prior: HS  \n  E_NH (base) = 0.014202941846911444\n  E_IH (base) = 0.0006454595109671247\n  Bayes Factor K (cosmo+prior) = 22.004388510180068\n  Bayes Factor K (total w/ osc) = 464.6302421998473\n----------------------------------------------------------------------\nDataset: baseline   | Prior: Flat\n  E_NH (base) = 0.0017986614514160352\n  E_IH (base) = 8.174907176602612e-05\n  Bayes Factor K (cosmo+prior) = 22.002224766098642\n  Bayes Factor K (total w/ osc) = 464.58455399832576\n----------------------------------------------------------------------\nDataset: plik       | Prior: SJPV\n  E_NH (base) = 1966.3273100561591\n  E_IH (base) = 5.344353897450587\n  Bayes Factor K (cosmo+prior) = 367.92610440602647\n  Bayes Factor K (total w/ osc) = 7768.886416576885\n----------------------------------------------------------------------\nDataset: plik       | Prior: HS  \n  E_NH (base) = 0.0207103275870149\n  E_IH (base) = 0.001215808080462768\n  Bayes Factor K (cosmo+prior) = 17.034207881832806\n  Bayes Factor K (total w/ osc) = 359.68316639005565\n----------------------------------------------------------------------\nDataset: plik       | Prior: Flat\n  E_NH (base) = 0.002619886854169321\n  E_IH (base) = 0.0001540675373115255\n  Bayes Factor K (cosmo+prior) = 17.004794779525124\n  Bayes Factor K (total w/ osc) = 359.0620986042935\n----------------------------------------------------------------------\nDataset: lh         | Prior: SJPV\n  E_NH (base) = 2366.377071124841\n  E_IH (base) = 11.54765575907512\n  Bayes Factor K (cosmo+prior) = 204.92272375413884\n  Bayes Factor K (total w/ osc) = 4327.013892073785\n----------------------------------------------------------------------\nDataset: lh         | Prior: HS  \n  E_NH (base) = 0.028327648012376472\n  E_IH (base) = 0.002798214529853039\n  Bayes Factor K (cosmo+prior) = 10.123472560863384\n  Bayes Factor K (total w/ osc) = 213.76060987476953\n----------------------------------------------------------------------\nDataset: lh         | Prior: Flat\n  E_NH (base) = 0.003573397856100636\n  E_IH (base) = 0.0003551761941589398\n  Bayes Factor K (cosmo+prior) = 10.060916004132743\n  Bayes Factor K (total w/ osc) = 212.43970663351388\n----------------------------------------------------------------------\nDataset: w0wa       | Prior: SJPV\n  E_NH (base) = 12653.939063133306\n  E_IH (base) = 554.1703829183206\n  Bayes Factor K (cosmo+prior) = 22.83402262765525\n  Bayes Factor K (total w/ osc) = 482.14825233502637\n----------------------------------------------------------------------\nDataset: w0wa       | Prior: HS  \n  E_NH (base) = 0.36754638448599875\n  E_IH (base) = 0.1820077436938189\n  Bayes Factor K (cosmo+prior) = 2.0193997080931942\n  Bayes Factor K (total w/ osc) = 42.640320363165756\n----------------------------------------------------------------------\nDataset: w0wa       | Prior: Flat\n  E_NH (base) = 0.04647268253951803\n  E_IH (base) = 0.023109857666364076\n  Bayes Factor K (cosmo+prior) = 2.0109462901261423\n  Bayes Factor K (total w/ osc) = 42.461823531243766\n----------------------------------------------------------------------\nDataset: FC         | Prior: SJPV\n  E_NH (base) = 748.7073835411646\n  E_IH (base) = 2.106423824870198\n  Bayes Factor K (cosmo+prior) = 355.44004710794684\n  Bayes Factor K (total w/ osc) = 7505.239016248355\n----------------------------------------------------------------------\nDataset: FC         | Prior: HS  \n  E_NH (base) = 0.007825745301138791\n  E_IH (base) = 0.00048189318631671304\n  Bayes Factor K (cosmo+prior) = 16.239584877623695\n  Bayes Factor K (total w/ osc) = 342.9044279701063\n----------------------------------------------------------------------\nDataset: FC         | Prior: Flat\n  E_NH (base) = 0.00099016698919922\n  E_IH (base) = 6.113511949931026e-05\n  Bayes Factor K (cosmo+prior) = 16.196369571345834\n  Bayes Factor K (total w/ osc) = 341.99192189372366\n----------------------------------------------------------------------\n\nResults successfully saved to data/evidence_results_step_2.json\n",
+    "timestamp": "2026-05-01 18:09:59",
+    "cost": {
+      "Agent": [],
+      "Model": [],
+      "Cost": [],
+      "Prompt Tokens": [],
+      "Completion Tokens": [],
+      "Total Tokens": []
+    }
+  },
+  {
+    "name": "execution_recorder",
+    "content": "Code execution recorded.\n\nExecution output:\nExecution results:\n\nExecution output: \nStarting Monte Carlo integration for Bayesian Evidence...\n\n======================================================================\nBAYESIAN EVIDENCE COMPUTATION RESULTS\n======================================================================\nDataset: baseline   | Prior: SJPV\n  E_NH (base) = 1421.6916532931352\n  E_IH (base) = 2.934061080151654\n  Bayes Factor K (cosmo+prior) = 484.54739504593124\n  Bayes Factor K (total w/ osc) = 10231.385135439685\n----------------------------------------------------------------------\nDataset: baseline   | Prior: HS  \n  E_NH (base) = 0.014202941846911444\n  E_IH (base) = 0.0006454595109671247\n  Bayes Factor K (cosmo+prior) = 22.004388510180068\n  Bayes Factor K (total w/ osc) = 464.6302421998473\n----------------------------------------------------------------------\nDataset: baseline   | Prior: Flat\n  E_NH (base) = 0.0017986614514160352\n  E_IH (base) = 8.174907176602612e-05\n  Bayes Factor K (cosmo+prior) = 22.002224766098642\n  Bayes Factor K (total w/ osc) = 464.58455399832576\n----------------------------------------------------------------------\nDataset: plik       | Prior: SJPV\n  E_NH (base) = 1966.3273100561591\n  E_IH (base) = 5.344353897450587\n  Bayes Factor K (cosmo+prior) = 367.92610440602647\n  Bayes Factor K (total w/ osc) = 7768.886416576885\n----------------------------------------------------------------------\nDataset: plik       | Prior: HS  \n  E_NH (base) = 0.0207103275870149\n  E_IH (base) = 0.001215808080462768\n  Bayes Factor K (cosmo+prior) = 17.034207881832806\n  Bayes Factor K (total w/ osc) = 359.68316639005565\n----------------------------------------------------------------------\nDataset: plik       | Prior: Flat\n  E_NH (base) = 0.002619886854169321\n  E_IH (base) = 0.0001540675373115255\n  Bayes Factor K (cosmo+prior) = 17.004794779525124\n  Bayes Factor K (total w/ osc) = 359.0620986042935\n----------------------------------------------------------------------\nDataset: lh         | Prior: SJPV\n  E_NH (base) = 2366.377071124841\n  E_IH (base) = 11.54765575907512\n  Bayes Factor K (cosmo+prior) = 204.92272375413884\n  Bayes Factor K (total w/ osc) = 4327.013892073785\n----------------------------------------------------------------------\nDataset: lh         | Prior: HS  \n  E_NH (base) = 0.028327648012376472\n  E_IH (base) = 0.002798214529853039\n  Bayes Factor K (cosmo+prior) = 10.123472560863384\n  Bayes Factor K (total w/ osc) = 213.76060987476953\n----------------------------------------------------------------------\nDataset: lh         | Prior: Flat\n  E_NH (base) = 0.003573397856100636\n  E_IH (base) = 0.0003551761941589398\n  Bayes Factor K (cosmo+prior) = 10.060916004132743\n  Bayes Factor K (total w/ osc) = 212.43970663351388\n----------------------------------------------------------------------\nDataset: w0wa       | Prior: SJPV\n  E_NH (base) = 12653.939063133306\n  E_IH (base) = 554.1703829183206\n  Bayes Factor K (cosmo+prior) = 22.83402262765525\n  Bayes Factor K (total w/ osc) = 482.14825233502637\n----------------------------------------------------------------------\nDataset: w0wa       | Prior: HS  \n  E_NH (base) = 0.36754638448599875\n  E_IH (base) = 0.1820077436938189\n  Bayes Factor K (cosmo+prior) = 2.0193997080931942\n  Bayes Factor K (total w/ osc) = 42.640320363165756\n----------------------------------------------------------------------\nDataset: w0wa       | Prior: Flat\n  E_NH (base) = 0.04647268253951803\n  E_IH (base) = 0.023109857666364076\n  Bayes Factor K (cosmo+prior) = 2.0109462901261423\n  Bayes Factor K (total w/ osc) = 42.461823531243766\n----------------------------------------------------------------------\nDataset: FC         | Prior: SJPV\n  E_NH (base) = 748.7073835411646\n  E_IH (base) = 2.106423824870198\n  Bayes Factor K (cosmo+prior) = 355.44004710794684\n  Bayes Factor K (total w/ osc) = 7505.239016248355\n----------------------------------------------------------------------\nDataset: FC         | Prior: HS  \n  E_NH (base) = 0.007825745301138791\n  E_IH (base) = 0.00048189318631671304\n  Bayes Factor K (cosmo+prior) = 16.239584877623695\n  Bayes Factor K (total w/ osc) = 342.9044279701063\n----------------------------------------------------------------------\nDataset: FC         | Prior: Flat\n  E_NH (base) = 0.00099016698919922\n  E_IH (base) = 6.113511949931026e-05\n  Bayes Factor K (cosmo+prior) = 16.196369571345834\n  Bayes Factor K (total w/ osc) = 341.99192189372366\n----------------------------------------------------------------------\n\nResults successfully saved to data/evidence_results_step_2.json\n",
+    "timestamp": "2026-05-01 18:09:59",
+    "cost": {
+      "Agent": [],
+      "Model": [],
+      "Cost": [],
+      "Prompt Tokens": [],
+      "Completion Tokens": [],
+      "Total Tokens": []
+    }
+  },
+  {
+    "name": "executor_response_evaluator",
+    "content": "",
+    "timestamp": "2026-05-01 18:10:00",
+    "cost": {
+      "Agent": [
+        "executor_response_evaluator",
+        "executor_response_evaluator",
+        "executor_response_evaluator"
+      ],
+      "Model": [
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3.1-flash-lite-preview",
+        "gemini-3.1-flash-lite-preview"
+      ],
+      "Cost": [
+        0.0004535,
+        0.0010127500000000002,
+        0.0017730000000000003
+      ],
+      "Prompt Tokens": [
+        1112,
+        2731,
+        5592
+      ],
+      "Completion Tokens": [
+        117,
+        220,
+        250
+      ],
+      "Total Tokens": [
+        1229,
+        2951,
+        5842
+      ]
+    }
+  },
+  {
+    "name": "_Group_Tool_Executor",
+    "content": "Code execution successful. 2 new image(s) generated.\n\n\nxxxxxxxxxxxxxxxxxxxxxxxxxx\n\nWorkflow status:\n\nPlan step number: 2\n\nAgent for sub-task (might be different from the next agent suggestion for debugging): engineer\n\nStep status (before execution): in progress\n\nCode status: success\n\nxxxxxxxxxxxxxxxxxxxxxxxxxx\n\n\nPlease review the generated images and provide feedback.",
+    "timestamp": "2026-05-01 18:10:00",
+    "cost": {
+      "Agent": [],
+      "Model": [],
+      "Cost": [],
+      "Prompt Tokens": [],
+      "Completion Tokens": [],
+      "Total Tokens": []
+    }
+  },
+  {
+    "name": "image_reviewer",
+    "content": "[{'type': 'text', 'text': '**Needs Revision:** no\\n\\n**Issues:**\\nNone\\n\\n**Suggestions:**\\nNone\\n\\n**Summary:**\\nThe generated images are of high quality and accurately represent the data as requested. Image 0 successfully compares the KDE from the DESI DR2 chains with a truncated Gaussian fit and the Feldman-Cousins profile likelihood, clearly marking the 95% upper limit. Image 1 effectively shows the marginalized posteriors for different CMB likelihoods and includes the minimum sum of masses for both Normal and Inverted Hierarchies, providing a clear visual comparison. Both plots are well-labeled and scientifically accurate.', 'extras': {'signature': 'EjQKMgEMOdbHLwCw66oXGEEGEvuKaE/ZK4bJrU5znD+flGlVR5IQRNK/YcD/U9DPdq2nbOnt'}}]",
+    "timestamp": "2026-05-01 18:10:03",
+    "cost": {
+      "Agent": [
+        "image_reviewer"
+      ],
+      "Model": [
+        "gemini-3.1-flash-image-preview"
+      ],
+      "Cost": [
+        0.000431025
+      ],
+      "Prompt Tokens": [
+        5255
+      ],
+      "Completion Tokens": [
+        123
+      ],
+      "Total Tokens": [
+        5378
+      ]
+    }
+  },
+  {
+    "name": "image_review_recorder",
+    "content": "",
+    "timestamp": "2026-05-01 18:10:04",
+    "cost": {
+      "Agent": [
+        "image_review_recorder"
+      ],
+      "Model": [
+        "gemini-3.1-flash-lite-preview"
+      ],
+      "Cost": [
+        0.000331
+      ],
+      "Prompt Tokens": [
+        544
+      ],
+      "Completion Tokens": [
+        130
+      ],
+      "Total Tokens": [
+        674
+      ]
+    }
+  },
+  {
+    "name": "_Group_Tool_Executor",
+    "content": "Image review passed. Step marked as complete.\n\nSummary: The generated images are of high quality and accurately represent the data as requested. Image 0 successfully compares the KDE from the DESI DR2 chains with a truncated Gaussian fit and the Feldman-Cousins profile likelihood, clearly marking the 95% upper limit. Image 1 effectively shows the marginalized posteriors for different CMB likelihoods and includes the minimum sum of masses for both Normal and Inverted Hierarchies, providing a clear visual comparison. Both plots are well-labeled and scientifically accurate.",
+    "timestamp": "2026-05-01 18:10:04",
+    "cost": {
+      "Agent": [],
+      "Model": [],
+      "Cost": [],
+      "Prompt Tokens": [],
+      "Completion Tokens": [],
+      "Total Tokens": []
+    }
+  },
+  {
+    "name": "controller",
+    "content": "",
+    "timestamp": "2026-05-01 18:10:04",
+    "cost": {
+      "Agent": [
+        "controller"
+      ],
+      "Model": [
+        "gemini-3.1-flash-lite-preview"
+      ],
+      "Cost": [
+        0.0019822499999999996
+      ],
+      "Prompt Tokens": [
+        7821
+      ],
+      "Completion Tokens": [
+        18
+      ],
+      "Total Tokens": [
+        7839
+      ]
+    }
+  },
+  {
+    "name": "_Group_Tool_Executor",
+    "content": "\n**Step number:** 2 out of 9.\n\n**Sub-task:** Bayesian Evidence Framework Implementation\n\n**Agent in charge of sub-task:** `engineer`\n\n**Instructions:**\n\n- Implement the hierarchy-specific likelihoods by combining the cosmological likelihood with the oscillation likelihood. Implement the oscillation likelihood as a product of independent Gaussians for $\u0394 m^2_{21}$ and $\u0394 m^2_{3\u2113}$ using NuFIT 6.0 central values and uncertainties.\n- Implement the SJPV hierarchical logarithmic prior (marginalizing over its hyperparameters), the HS objective prior (using the Jacobian transformation), and a simple flat prior in $\u03a3 m_\u03bd$ as a control/reference case.\n- Compute the Bayesian evidence for both Normal Hierarchy (NH) and Inverted Hierarchy (IH) using Monte Carlo integration.\n- Calculate the Bayes factors for all priors. Separately store the evidence values computed with and without the $\u0394\u03c7^2$(IO-NO) oscillation global-fit contribution, so the multiplicative factor $\\exp(\u0394\u03c7^2/2)$ can be reported independently.\n- Print all intermediate evidence values (not just Bayes factors) to the console for traceability, and save the computed evidence values and Bayes factors to disk.\n\n**Step status:** completed \u2705\n\n**Code status:** success\n\n**Step iteration:** 0/10\n        ",
+    "timestamp": "2026-05-01 18:10:04",
+    "cost": {
+      "Agent": [],
+      "Model": [],
+      "Cost": [],
+      "Prompt Tokens": [],
+      "Completion Tokens": [],
+      "Total Tokens": []
+    }
+  },
+  {
+    "name": "terminator",
+    "content": "TERMINATE",
+    "timestamp": "2026-05-01 18:10:04",
+    "cost": {
+      "Agent": [],
+      "Model": [],
+      "Cost": [],
+      "Prompt Tokens": [],
+      "Completion Tokens": [],
+      "Total Tokens": []
+    }
+  }
+]
