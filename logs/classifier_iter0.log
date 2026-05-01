@@ -1,0 +1,7 @@
+Classifier: Step 1 — Determining archive...
+  Archive: astro-ph — The paper primarily utilizes cosmological data from the Dark Energy Spectroscopic Instrument (DESI) to constrain neutrino mass hierarchies, which is a core topic in physical cosmology.
+Classifier: Step 2 — Determining subcategory within 'astro-ph'...
+  Primary: astro-ph.CO
+  Secondary: hep-ph, nucl-th
+  Justification: The paper focuses on cosmological constraints on neutrino mass hierarchy using DESI data, which is central to cosmology (astro-ph.CO). It also involves particle physics phenomenology regarding neutrino mass models (hep-ph) and nuclear physics implications for neutrinoless double-beta decay (nucl-th).
+Classification completed in 0 min 2 sec. Cost: $0.0000

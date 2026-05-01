@@ -1,0 +1,8 @@
+{
+  "primary_category": "astro-ph.CO",
+  "secondary_categories": [
+    "hep-ph",
+    "nucl-th"
+  ],
+  "justification": "The paper focuses on cosmological constraints on neutrino mass hierarchy using DESI data, which is central to cosmology (astro-ph.CO). It also involves particle physics phenomenology regarding neutrino mass models (hep-ph) and nuclear physics implications for neutrinoless double-beta decay (nucl-th)."
+}
