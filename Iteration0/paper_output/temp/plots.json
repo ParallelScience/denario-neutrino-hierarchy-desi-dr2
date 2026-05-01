@@ -1,0 +1,47 @@
+{
+  "image0": {
+    "key": "image0",
+    "name": "likelihood_comparison_1_20260501_180057.png",
+    "caption": "The marginalized one-dimensional posterior probability density for the sum of neutrino masses, $\\Sigma m\\_\\nu$, derived from DESI DR2 and Planck CamSpec data under a $\\Lambda$CDM model. The posterior, estimated via Kernel Density Estimation (KDE) from the MCMC chains (solid black), is modeled using a truncated Gaussian distribution (dashed blue; $\\mu\\_0 = -0.009$ eV, $\\sigma = 0.036$ eV) for Bayesian evidence calculations. The close agreement with the Feldman-Cousins profile likelihood (dash-dotted red; $\\mu\\_0 = -0.036$ eV, $\\sigma = 0.043$ eV) validates this analytical approximation. The analysis yields a 95\\% upper limit of $\\Sigma m\\_\\nu < 0.0642$ eV (dotted vertical line)."
+  },
+  "image5": {
+    "key": "image5",
+    "name": "step_5_corner_plot_IH_5_20260501_182113.png",
+    "caption": "Joint and marginal posterior distributions for the individual neutrino masses ($m_1, m_2, m_3$) and their sum ($\\Sigma m\\_\\nu$) under the Inverted Hierarchy (IH) model, using the baseline DESI DR2 data and the SJPV prior. The plot illustrates the required mass degeneracy ($m_1 \\approx m_2 \\approx 0.05$ eV) and shows that the posterior for the total mass is confined above the IH minimum of $\\sim 0.099$ eV. This entire parameter space is in severe tension with the 95\\% cosmological upper limit of $0.0642$ eV, visually demonstrating why the IH is decisively disfavored by the data."
+  },
+  "image1": {
+    "key": "image1",
+    "name": "likelihood_all_datasets_1_20260501_180057.png",
+    "caption": "Marginalized posterior distributions for the sum of neutrino masses, $\\Sigma m_\\nu$, derived from DESI DR2 data combined with different Planck CMB likelihoods (CamSpec, plik, and L-H) within the $\\Lambda$CDM model. The constraints are consistent across the different CMB treatments, demonstrating the robustness of the likelihood used for the Bayesian evidence calculation, with the baseline CamSpec likelihood providing the tightest constraint (95\\% upper limit of 0.0642 eV). All posteriors show that the probability density is concentrated at values significantly below the minimum mass required for the Inverted Hierarchy (IH, 0.099 eV) while being consistent with the Normal Hierarchy (NH, 0.059 eV)."
+  },
+  "image6": {
+    "key": "image6",
+    "name": "step_5_mass_spectrum_5_20260501_182114.png",
+    "caption": "Neutrino mass spectrum for the Normal (NH) and Inverted (IH) Hierarchies, plotting individual masses and their sum ($\\Sigma m\\_\\nu$) as a function of the lightest neutrino mass ($m\\_L$). The plot visually demonstrates the tension between the IH and cosmological data. The minimum possible sum for the NH ($\\sim 0.059$ eV) is well within the DESI DR2 95\\% upper limit of 0.0642 eV, whereas the minimum for the IH ($\\sim 0.099$ eV) lies significantly above it, placing the entire IH parameter space in conflict with observations."
+  },
+  "image2": {
+    "key": "image2",
+    "name": "step_3_historical_bayes_factor_3_20260501_181318.png",
+    "caption": "Historical evolution of the Bayes factor K, quantifying the evidence for the Normal Hierarchy (NH) versus the Inverted Hierarchy (IH), from 2002 to 2025. The analysis is presented for two distinct prior frameworks: the physically motivated SJPV prior (blue circles) and the objective HS prior (red squares). The plot illustrates a monotonic growth in evidence for the NH as cosmological constraints on the sum of neutrino masses ($\\Sigma m\\_\\nu$) have progressively tightened over time. The most recent data point, corresponding to the DESI DR2 era, represents a critical inflection point where the cosmological upper limit on $\\Sigma m\\_\\nu$ has fallen below the minimum mass required by the IH. This has caused the Bayes factor under both prior frameworks to surge past the ``decisive'' threshold (K > 100), demonstrating that the preference for the NH is a robust, data-driven conclusion."
+  },
+  "image7": {
+    "key": "image7",
+    "name": "step_6_mbb_projections_6_20260501_182338.png",
+    "caption": "Posterior probability distributions for the effective Majorana mass ($m_{\\beta\\beta}$) for the Normal Hierarchy (NH, blue) and Inverted Hierarchy (IH, red). The left panel shows the NH posterior is concentrated at low values, with a 95\\% credible interval of [0.95, 11.55] meV, largely below the projected sensitivity of next-generation experiments like nEXO. Conversely, the IH posterior predicts a much larger signal with a 95\\% credible interval of [18.36, 49.51] meV, which would be well within experimental reach. The right panel translates these distributions into the implied lower bound on the neutrinoless double-beta decay half-life ($T\\_{1/2}$), demonstrating that the NH scenario points towards a half-life likely exceeding $10^{28}$ years, making a non-detection in upcoming experiments the most probable outcome."
+  },
+  "image3": {
+    "key": "image3",
+    "name": "step_4_prior_volume_sensitivity_4_20260501_181745.png",
+    "caption": "Comparison of prior probability densities for the sum of neutrino masses ($\\Sigma m\\_\\nu$) under the SJPV (left) and HS (middle) frameworks. The SJPV prior exhibits a strong geometric volume penalty, restricting the parameter space for the Inverted Hierarchy (IH, red dashed) relative to the Normal Hierarchy (NH, blue solid). The objective HS prior removes this penalty, assigning comparable volumes. The right panel confirms the stability of the decisive Bayes factor for the NH under the SJPV prior, showing it is insensitive to the expansion of its hyperparameter bounds."
+  },
+  "image8": {
+    "key": "image8",
+    "name": "step_7_bayes_factors_summary_7_20260501_182746.png",
+    "caption": "Comparison of the total Bayes factor, K, supporting the Normal Hierarchy over the Inverted Hierarchy across various cosmological datasets. Results are shown for the physically motivated SJPV prior (blue) and the objective HS prior (red). For the baseline $\\Lambda$CDM model, incorporating different CMB likelihoods or supernovae datasets, both priors yield decisive evidence (K > 100) for the Normal Hierarchy. The preference remains robust even within an extended $w\\_0w\\_a$CDM dark energy model, where the evidence is still decisive under the SJPV prior and strong under the HS prior."
+  },
+  "image4": {
+    "key": "image4",
+    "name": "step_5_corner_plot_NH_5_20260501_182112.png",
+    "caption": "Joint and marginal posterior distributions for the individual neutrino masses ($m_1$, $m_2$, $m_3$) and their sum ($\\Sigma m\\_{nu}$) for the Normal Hierarchy (NH), derived from the baseline DESI DR2 data combined with the SJPV prior. The posterior is strongly peaked near the minimum allowed mass configuration, showing the lightest mass state, $m_1$, to be nearly massless. Consequently, the masses of $m_2$ and $m_3$ are sharply determined by oscillation splittings to be approximately 0.008 eV and 0.050 eV, respectively. This forces the total mass, $\\Sigma m\\_{nu}$, to be tightly constrained around its theoretical minimum of $\\sim 0.059$ eV, in full agreement with the cosmological constraints."
+  }
+}
