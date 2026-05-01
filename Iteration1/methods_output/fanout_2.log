@@ -1,0 +1,374 @@
+
+###### PROMPT BEGINS ########
+Human: You are provided with:
+- a description of the data
+- an idea
+- research plan to carry out the idea.
+
+Your task is to provide suggestions on how to improve the plan.
+Take into account and potential feedback (if any).
+If the plan is already good enough, do not give suggestions to improve it. If this is not first iteration, you will also be provided with the previous research plan along with some feedback on it. If this is the case, take into account the feedback provided when designing the new research plan. It is good to have a detailed plan, but not to have an overly complicated plan. If you dont have suggestions, just say that you dont have further suggestions. The idea should remain the same. No need to add code to the research plan, as another agent will write code given the research plan.
+
+Data description:
+
+# Neutrino Mass Hierarchy: Bayesian Evidence with DESI DR2 Constraints
+
+## Project Goal
+
+Apply the Bayesian evidence methodology of Jimenez, Pena-Garay, Short, Simpson & Verde (2022) [arXiv:2203.14247, JCAP] to the new, tightest-ever cosmological neutrino mass constraints from DESI DR2 (Elbers et al. 2025, PRD 112, 083513). The goal is to compute Bayes factors for Normal Hierarchy (NH) vs Inverted Hierarchy (IH), using both the SJPV (hierarchical logarithmic) and HS (objective Bayesian / Jeffreys) prior frameworks. The paper must: (1) highlight the foreseeing power of the 2022 methodology in predicting NH; (2) include a rigorous mathematical/philosophical section on prior choice in Bayesian model comparison; (3) include many detailed plots.
+
+---
+
+## Data Sources
+
+### 1. DESI DR2 MCMC Chains (PRIMARY DATA — download at runtime)
+
+The DESI DR2 BAO cosmology chains are publicly available at:
+  https://data.desi.lbl.gov/public/papers/y3/bao-cosmo-params/cobaya/
+
+The primary chain for Σmν (free neutrino mass, ΛCDM) is at:
+  https://data.desi.lbl.gov/public/papers/y3/bao-cosmo-params/cobaya/base_mnu/desi-bao-all_planck2018-lowl-TT-clik_planck2018-lowl-EE-clik_planck-NPIPE-highl-CamSpec-TTTEEE_planck-act-dr6-lensing/
+
+Files: chain.1.txt, chain.2.txt, chain.3.txt, chain.4.txt
+Format: cobaya MCMC chains, ASCII. Column headers in chain.1.txt.
+Read with GetDist: `from getdist.mcsamples import loadMCSamples; s = loadMCSamples(root)` where root is the path without the chain number suffix.
+
+Additional chains to download for comparison (same base URL structure):
+- base_mnu/desi-bao-all_planck2018-lowl-TT-clik_planck2018-lowl-EE-clik_planck2018-highl-plik-TTTEEE_planck-act-dr6-lensing/ (plik CMB likelihood)
+- base_mnu/desi-bao-all_planck2018-lowl-TT-clik_planck2020-lollipop-lowlE_planck2020-hillipop-TTTEEE_planck-act-dr6-lensing/ (L-H CMB likelihood)
+- base_mnu_w_wa/desi-bao-all_planck2018-lowl-TT-clik_planck2018-lowl-EE-clik_planck-NPIPE-highl-CamSpec-TTTEEE_planck-act-dr6-lensing/ (w0wa dark energy model)
+
+The chain column of interest is `mnu` (= Σmν in eV). Use GetDist to extract the 1D marginalized posterior P(Σmν | data).
+
+### 2. Published Numerical Results (to be used directly in code)
+
+From Elbers et al. 2025 (DESI DR2):
+
+| Dataset | Σmν upper limit (95%) | σ(Σmν) eV | Notes |
+|---|---|---|---|
+| DESI DR2 BAO + CMB (CamSpec, baseline) | 0.0642 eV | 0.020 | PRIMARY |
+| DESI DR2 BAO + CMB (plik) | 0.0691 eV | — | Alternative CMB |
+| DESI DR2 BAO + CMB (L-H) | 0.0774 eV | — | Alternative CMB |
+| DESI DR2 BAO + CMB + Pantheon+ | 0.0704 eV | — | +SNIa |
+| DESI DR2 BAO + CMB + Union3 | 0.0674 eV | — | +SNIa |
+| DESI DR2 BAO + CMB + DESY5 | 0.0744 eV | — | +SNIa |
+| DESI DR2 BAO + CMB (w0waCDM) | 0.163 eV | — | Dark energy extension |
+| DESI DR2 BAO + CMB + DESY5 (w0waCDM) | 0.129 eV | — | Dark energy extension |
+| Feldman-Cousins (ΛCDM) | 0.053 eV | — | Physical boundary corrected |
+
+Profile likelihood (Gaussian model for cosmological constraint):
+- ΛCDM baseline: μ₀ = −0.036 eV, σ = 0.043 eV (from Feldman-Cousins analysis in DESI paper)
+- When used as likelihood for Bayesian evidence: truncate at Σmν = 0 (non-negativity)
+
+### 3. Historical Cosmological Constraints (for comparison/evolution plots)
+
+All at 95% CL:
+| Year | Limit (eV) | Source |
+|---|---|---|
+| 2002 | 1.80 | 2dFGRS |
+| 2012 | 0.44 | WMAP-9 |
+| 2013 | 0.25 | Planck 2013 |
+| 2015 | 0.18 | Planck 2015 |
+| 2016 | 0.13 | Planck+BAO galaxy power spectrum |
+| 2021a | 0.102 | Planck+BAO+RSD (eBOSS) |
+| 2021b | 0.099 | Planck+BAO+RSD+SNe |
+| 2021c | 0.089 | Planck+BAO+Ly-α |
+| 2022a | 0.071 | DESI DR1 BAO + CMB (plik) |
+| 2025 | 0.0642 | DESI DR2 BAO + CMB (baseline) |
+
+### 4. Oscillation Parameters — NuFIT 6.0 (Esteban et al. 2024, arXiv:2410.05380)
+
+Mass-squared splittings (68% CL, including SK atmospheric data):
+- Δm²₂₁ = 7.49 ± 0.19 × 10⁻⁵ eV² (solar splitting)
+- Δm²₃₁ = +2.513 ± 0.020 × 10⁻³ eV² (Normal Ordering)
+- Δm²₃₂ = −2.484 ± 0.020 × 10⁻³ eV² (Inverted Ordering)
+
+Δχ² between orderings (NuFIT 6.0):
+- With SK atmospheric: Δχ²(IO - NO) = +6.1 (normal ordering preferred)
+- Without SK atmospheric: Δχ²(IO - NO) ≈ +2.5 (normal ordering weakly preferred)
+
+Minimum sum of masses (from oscillations alone):
+- NH minimum: Σmν^(NH,min) = 0.05878 ± 0.00023 eV (degenerate case m₁→0)
+- IH minimum: Σmν^(IH,min) = 0.09892 ± 0.00041 eV (degenerate case m₃→0)
+
+For comparison, NuFIT 5.1 (used in 2022 paper):
+- Δm²₂₁ = 7.42 ± 0.21 × 10⁻⁵ eV²
+- Δm²₃₁ = +2.510 ± 0.027 × 10⁻³ eV² (NH)
+- Δm²₃₂ = −2.490 ± 0.027 × 10⁻³ eV² (IH)
+- With SK-atm: Δχ²(IO - NO) = 7.0
+- Without SK-atm: Δχ²(IO - NO) = 2.6
+
+---
+
+## Methodology (from Jimenez et al. 2022, arXiv:2203.14247)
+
+### Physical Model
+
+Three neutrino mass eigenstates (m₁, m₂, m₃). Two orderings:
+- NH: m₁ ≤ m₂ ≤ m₃ → lightest is m₁, intermediate m₂, heaviest m₃
+- IH: m₃ ≤ m₁ ≤ m₂ → lightest is m₃, intermediate m₁, heaviest m₂
+
+Parameterize as (mL, mM, mH) = (lightest, middle, heaviest). Then:
+
+For NH: m₂ = sqrt(m₁² + Δm²₂₁), m₃ = sqrt(m₁² + Δm²₃₁)
+For IH: m₁ = sqrt(m₃² + |Δm²₃₂| - Δm²₂₁), m₂ = sqrt(m₃² + |Δm²₃₂|)
+Sum: Σ = mL + mM + mH
+
+The cosmological likelihood depends only on Σ.
+The oscillation likelihood depends on Δm²₂₁ and Δm²₃ℓ.
+
+### Bayesian Evidence
+
+For each ordering M ∈ {NH, IH}:
+
+P(D | M) = ∫ P(D_cosmo | Σ) P(D_osc | m₁, m₂, m₃) P(m₁, m₂, m₃ | M) dm₁ dm₂ dm₃
+
+Bayes factor: K = P(D | NH) / P(D | IH)
+
+The evidence ratio K is the primary output. On the Jeffreys scale:
+- K > 3.2: "substantial" evidence
+- K > 10: "strong" evidence
+- K > 100: "decisive" evidence
+
+### Prior 1: SJPV (Hierarchical Logarithmic — Jimenez et al.)
+
+The prior on each individual mass before oscillation data is log-normal:
+  P(log mᵢ | μ, σ) ~ N(log μ, σ)
+
+with hyperpriors (uniform in log space):
+  π(log μ) ~ U(log(5×10⁻⁴ eV), log(0.3 eV))
+  π(log σ) ~ U(log(5×10⁻³), log(20))
+
+The three masses are exchangeable (drawn from the same common distribution), reflecting the belief that all three masses share a common generation mechanism. The total prior marginalizes over μ and σ.
+
+The evidence integral becomes 5-dimensional: (m₁ or mL, μ, σ) plus constraints from oscillations.
+
+Implementation: numerical integration or MCMC over (mL, μ, σ) with the oscillation data folded in.
+
+### Prior 2: HS (Objective Bayesian / Jeffreys-Fisher — Simpson et al.)
+
+Reference prior derived from Fisher information of the oscillation likelihood:
+  P(mL, mM, mH) ∝ J(mL, mM, mH) = 4(mL·mM + mL·mH + mM·mH)
+
+This is the Jacobian of the transformation from natural oscillation parameters (φ=Δm²₂₁, ψ=Δm²₃ℓ, Σ) to individual masses.
+
+Upper truncation at Σmax = 1.5 eV (improper prior regularization).
+
+### Cosmological Likelihood Model
+
+From the DESI DR2 chain, extract the marginalized 1D posterior P(Σmν | DESI+CMB). For the Bayesian evidence calculation, treat this as the likelihood: P(D_cosmo | Σ).
+
+Two representations:
+1. Direct: use kernel density estimate (KDE) of chain samples for P(Σ | data)
+2. Gaussian approximation: P(Σ | data) ∝ exp(−(Σ − μ₀)²/(2σ²)) × θ(Σ) where θ is Heaviside
+
+For the Gaussian approximation, fit to the chain posterior: find μ₀ and σ such that 95th percentile matches published limit. Also use the profile likelihood values (μ₀ = −0.036 eV, σ = 0.043 eV) for Feldman-Cousins comparison.
+
+### Double-Beta Decay Implications (Majorana Neutrinos)
+
+Effective Majorana mass:
+  mββ = |Σᵢ Uₑᵢ² mᵢ| where U is PMNS matrix
+
+For the theoretical upper limit of the half-life of neutrinoless double-beta decay:
+  T^(0νββ)_{1/2} ∝ 1/mββ²
+
+Using the posterior on (m₁, m₂, m₃) from the NH analysis, compute the posterior on mββ and compare to IH case. Show the allowed ranges of mββ for NH vs IH given DESI DR2 + oscillation constraints. PMNS parameters from NuFIT 6.0.
+
+---
+
+## Required Analysis Steps
+
+The engineer must implement the following:
+
+### Step 1: Download and Process DESI DR2 Chains
+- Download chain.1.txt through chain.4.txt for the primary dataset (ΛCDM base_mnu, DESI BAO + CMB CamSpec)
+- Use GetDist (pip: getdist) to read chains and extract Σmν posterior
+- Fit Gaussian (possibly truncated at 0) to the posterior: find μ₀, σ
+- Compare KDE vs Gaussian: plot both
+- Save processed posterior to disk
+
+### Step 2: Implement Bayesian Evidence Computation
+- For both NH and IH:
+  - SJPV prior: Monte Carlo integration over (mL, μ, σ) with oscillation + cosmological likelihood
+  - HS prior: Monte Carlo integration over mL with Jacobian prior + oscillation + cosmological likelihood
+- Compute evidence for each ordering and each prior
+- Compute Bayes factors K = E(NH)/E(IH)
+- Include and exclude the Δχ² contribution from oscillation global fit separately
+
+### Step 3: Historical Evolution of Bayes Factors
+- Compute K(Σ_limit) as a function of the historical cosmological upper limits (2002–2025)
+- Show the "prediction" power: as constraints tightened, K grew, and the 2022 paper's framework was already conclusive
+- Make a timeline plot showing how K evolved from "no evidence" to "decisive"
+
+### Step 4: Prior Sensitivity Analysis
+- Vary the SJPV hyperprior boundaries and show K is stable
+- Compare SJPV, HS, and (as a check) a simple flat prior
+- Show prior volume plots to illustrate geometric argument
+
+### Step 5: Individual Mass Posteriors
+- For NH and IH: compute posteriors on m₁, m₂, m₃ (or mL, mM, mH)
+- Triangle plot (corner plot) of (mL, mM, mH, Σ) for NH and IH
+- Show mass spectra (m₁, m₂, m₃ as function of mL) for NH and IH
+
+### Step 6: Double-Beta Decay
+- Compute posterior on mββ for NH and IH given DESI DR2 + oscillations
+- Plot 1D posterior of mββ for both hierarchies
+- Compare to sensitivity of planned experiments (nEXO: ~5 meV, KamLAND-Zen: ~20 meV)
+- Show upper limit on T^(0νββ)_{1/2} implied by NH + DESI DR2
+
+### Step 7: Dark Energy Dependence
+- Repeat evidence computation using the w0waCDM limit (Σmν < 0.163 eV): how does K change?
+- Show K vs assumed dark energy model
+
+### Step 8: Summary Statistics and Tables
+- Table of K values for all dataset combinations and both priors
+- Compare 2022 results (NuFIT 5.1 + older cosmology) vs 2025 results (NuFIT 6.0 + DESI DR2)
+
+---
+
+## Software Requirements
+
+- Python packages: numpy, scipy, matplotlib, getdist, corner, astropy
+- All packages available in /opt/denario-venv
+- Download chains at runtime using: requests or urllib
+- GPU not needed; pure CPU computation
+- Multiprocessing allowed: use up to 8 workers
+- Memory: chains are ~50-100 MB each; 4 chains × ~50 MB = manageable
+
+---
+
+## Notes for the Planner
+
+1. This is a COMPUTATION project, not a machine-learning project. The core task is Bayesian integration.
+2. The DESI chains must be downloaded at the start of the first step.
+3. The evidence integrals can be done with numpy/scipy (Gaussian quadrature or Monte Carlo). MCMC is not needed.
+4. GetDist is key for reading cobaya chains — it handles the weight column automatically.
+5. The Δχ² contribution enters multiplicatively: K_total = K_prior × exp(Δχ²_IO-NO / 2). Report separately and combined.
+6. Be precise about NuFIT version: use NuFIT 6.0 values (arXiv:2410.05380) as primary, NuFIT 5.1 (used in 2022 paper) for comparison.
+7. For corner plots use the `corner` package; for 1D posteriors use matplotlib.
+8. Always label which prior (SJPV or HS) and which dataset is being used.
+9. This paper targets JCAP — use professional scientific style.
+
+
+Idea:
+**Title**: Decisive Bayesian Evidence for the Normal Neutrino Mass Hierarchy from DESI DR2
+
+**Description**: This study quantifies the statistical preference for the Normal Hierarchy (NH) by applying the Jimenez et al. (2022) Bayesian evidence framework to the DESI DR2 cosmological chains, specifically deconvolving the flat prior inherent in the public Cobaya chains to isolate the true cosmological likelihood $P(D_{\text{cosmo}} | \Sigma)$. We compute Bayes factors $K = P(D|NH)/P(D|IH)$ using both SJPV hierarchical logarithmic and HS objective priors, rigorously incorporating NuFIT 6.0 oscillation constraints and fully marginalizing over Majorana CP-violating phases to produce a statistically sound posterior interval for the effective mass $m_{\beta\beta}$. To address the model-dependency of the hierarchy preference, we contrast the evidence strength derived from the $\Lambda$CDM baseline against the $w_0w_a$CDM extension, where the degradation of $K$ serves as a critical measure of the sensitivity of the hierarchy constraint to dark energy parameterization. The analysis includes a formal mathematical treatment of prior choice, contrasting the geometric volume effects of the SJPV and HS frameworks. We reconstruct the historical evolution of $K$ from 2002 to 2025 to validate the predictive power of the 2022 methodology against the increasing tension between cosmological data and the IH minimum mass threshold. This comprehensive evaluation provides a definitive, data-driven assessment of the neutrino mass hierarchy, culminating in robust projections for next-generation $0\nu\beta\beta$ experiments.
+
+Research plan:
+1. **Data Acquisition and Likelihood Construction**
+   - Download the specified DESI DR2 MCMC chains (base_mnu and base_mnu_w_wa). Use `getdist` to load the chains and extract the 1D marginalized posterior for $\Sigma m_\nu$.
+   - Construct the cosmological likelihood $P(D_{\text{cosmo}} | \Sigma)$ using a Kernel Density Estimate (KDE) and a truncated Gaussian fit ($\mu_0, \sigma$) constrained to $\Sigma m_\nu \geq 0$.
+   - Perform a "prior-data conflict" test by calculating the Box p-value to quantify the tension between the cosmological data and the physical boundary ($\Sigma m_\nu \geq 0$). Explicitly report the fraction of the evidence driven by the prior truncation versus the bulk of the likelihood.
+
+2. **Refined Oscillation Likelihood and Marginalization**
+   - Implement the oscillation likelihood $P(D_{\text{osc}} | m_1, m_2, m_3)$ using the full NuFIT 6.0 covariance matrix to account for correlations between $\Delta m^2_{21}$ and $\Delta m^2_{3\ell}$.
+   - Perform full marginalization over the oscillation parameters ($\Delta m^2_{21}, \Delta m^2_{3\ell}$) rather than using fixed values, ensuring the oscillation constraint is integrated into the evidence calculation without double-counting.
+
+3. **Bayesian Evidence Computation**
+   - Compute the evidence $P(D|M)$ for NH and IH using the SJPV hierarchical logarithmic prior and the HS objective prior (Jacobian $J(m_L, m_M, m_H)$).
+   - Apply the $\Delta\chi^2$ contribution from the NuFIT 6.0 global fit as a multiplicative factor to the evidence ratio.
+   - Calculate the Bayes factor $K = P(D|NH)/P(D|IH)$ and categorize the strength of evidence on the Jeffreys scale.
+
+4. **Model-Hierarchy Degeneracy Analysis**
+   - Quantify the correlation between $\Sigma m_\nu$ and $w_a$ in the DESI DR2 $w_0w_a$CDM chains.
+   - Compare the Bayes factors derived from $\Lambda$CDM versus $w_0w_a$CDM to assess the robustness of the hierarchy preference.
+   - Explicitly frame the results as a "Model-Hierarchy Degeneracy" to demonstrate how the strength of the NH preference depends on the assumed dark energy parameterization.
+
+5. **Stress Testing the Hierarchy Preference**
+   - Perform a sensitivity analysis by calculating $K$ as a function of the central value ($\mu_0$) of the cosmological constraint.
+   - Identify the "breaking point" value of $\mu_0$ at which the evidence for NH drops below $K=10$. This provides a quantitative threshold for the stability of the hierarchy preference.
+
+6. **Philosophical and Geometric Justification**
+   - Draft a formal section contrasting the Bayesian evidence approach with the frequentist Feldman-Cousins profile likelihood.
+   - Explain how the Bayesian framework naturally incorporates "Occam's Razor" by penalizing the IH for the fine-tuning required by its higher minimum mass threshold.
+   - Plot the "Prior Volume" for both hierarchies to visualize the geometric effects of the SJPV and HS priors.
+
+7. **Double-Beta Decay ($m_{\beta\beta}$) Conditional Predictions**
+   - Compute the posterior for $m_{\beta\beta} = |\sum U_{ei}^2 m_i|$ by Monte Carlo integration over the PMNS matrix elements, sampling mixing angles from NuFIT 6.0 covariance matrices and Majorana phases uniformly in $[0, 2\pi]$.
+   - Plot the 1D posterior of $m_{\beta\beta}$ for both hierarchies, overlaying sensitivity thresholds for nEXO and KamLAND-Zen.
+   - Frame these results as "conditional predictions" based on the validity of the $\Lambda$CDM model.
+
+8. **Historical Evolution and Final Reporting**
+   - Re-run the evidence calculation for historical cosmological upper limits (2002–2025) to generate a timeline plot of $K$.
+   - Compile a summary table of $K$ values across all datasets, priors, and dark energy models.
+   - Document the impact of updating from NuFIT 5.1 to 6.0 and synthesize the final conclusion regarding the statistical preference for the Normal Hierarchy.
+
+Previous research plan:
+1. **Data Acquisition and Preprocessing**:
+    - Download DESI DR2 MCMC chains (base_mnu and base_mnu_w_wa) with a check for file existence to prevent redundant downloads.
+    - Use `getdist` to load chains and extract the 1D marginalized posterior for $\Sigma m_\nu$.
+    - Construct the cosmological likelihood $P(D_{\text{cosmo}} | \Sigma)$ using two methods: (a) a Kernel Density Estimate (KDE) of the chains, and (b) a truncated Gaussian fit ($\mu_0, \sigma$) constrained to $\Sigma m_\nu \geq 0$.
+    - Benchmark these against the Feldman-Cousins profile likelihood ($\mu_0 = -0.036$ eV, $\sigma = 0.043$ eV) to ensure consistency with the DESI DR2 statistical treatment.
+
+2. **Bayesian Evidence Framework Implementation**:
+    - Define the hierarchy-specific likelihoods by combining $P(D_{\text{cosmo}} | \Sigma)$ with the oscillation likelihood $P(D_{\text{osc}} | m_1, m_2, m_3)$.
+    - Construct $P(D_{\text{osc}} | \theta)$ using NuFIT 6.0 $\chi^2$ values, modeled as a product of Gaussians for mass-squared splittings and mixing angles, ensuring proper normalization such that $\int P(D_{\text{osc}} | \theta) d\theta = 1$.
+    - Implement the SJPV hierarchical logarithmic prior (marginalizing over hyper-parameters $\mu, \sigma$) and the HS objective prior (using the Jacobian $J(m_L, m_M, m_H)$).
+    - Use numerical integration to compute the evidence $P(D|M)$ for each hierarchy.
+
+3. **Bayes Factor Calculation and Sensitivity**:
+    - Compute the Bayes factor $K = P(D|NH)/P(D|IH)$ for both priors.
+    - Separate the contribution from the oscillation data ($\Delta\chi^2$ between orderings) from the cosmological evidence.
+    - Include a "Flat Prior" (uniform in $\Sigma m_\nu$) as a control case to ensure robustness.
+    - Perform sensitivity checks by varying SJPV hyperprior boundaries and comparing results against the FC-corrected profile likelihood.
+
+4. **Prior Volume and Philosophical Analysis**:
+    - Calculate and plot the "Prior Volume" for both hierarchies to visualize the geometric effects of the SJPV and HS frameworks.
+    - Include a formal section contrasting the geometric volume effects of the SJPV and HS priors to explain differences in Bayes factors, addressing the project's requirement for a rigorous mathematical/philosophical discussion.
+
+5. **Historical Evolution Analysis**:
+    - Compile historical cosmological upper limits (2002–2025) and re-run the evidence calculation for each.
+    - Generate a timeline plot showing the evolution of $K$ to demonstrate the predictive power of the methodology and the transition from "no evidence" to "decisive" evidence on the Jeffreys scale.
+
+6. **Mass Posterior and Spectral Analysis**:
+    - Generate 1D and 2D posterior distributions for individual mass eigenstates ($m_1, m_2, m_3$) and $\Sigma$ using the `corner` package.
+    - Construct mass spectrum plots showing the relationship between individual masses as a function of $m_L$ for both hierarchies.
+
+7. **Double-Beta Decay ($m_{\beta\beta}$) Projections**:
+    - Compute the posterior for $m_{\beta\beta} = |\sum U_{ei}^2 m_i|$ by performing Monte Carlo integration over the PMNS matrix elements.
+    - Sample mixing angles using NuFIT 6.0 covariance matrices and Majorana phases ($\alpha_1, \alpha_2$) uniformly in $[0, 2\pi]$.
+    - Plot the 1D posterior of $m_{\beta\beta}$ for both hierarchies, overlaying sensitivity thresholds for nEXO and KamLAND-Zen.
+
+8. **Dark Energy Dependency and Final Reporting**:
+    - Repeat evidence computation using $w_0w_a$CDM chains to quantify the degradation of $K$ relative to the $\Lambda$CDM baseline.
+    - Compile a summary table of $K$ values across all datasets and priors.
+    - Explicitly state the preference in terms of "decisive evidence for NH" vs "decisive evidence against IH" and document the impact of updating from NuFIT 5.1 to 6.0.
+
+Feedback on previous research plan:
+The current analysis is technically sound and provides a compelling, well-documented case for the Normal Hierarchy (NH). However, to elevate this from a computational exercise to a definitive scientific contribution, the following critical gaps must be addressed:
+
+1. **Address the "Prior-Data Conflict" explicitly:** The analysis notes that the cosmological posterior is centered at $\mu_0 = -0.009$ eV (or $-0.036$ eV for FC). This implies a significant portion of the likelihood is truncated at $\Sigma m_\nu = 0$. You must perform a "prior-data conflict" test (e.g., the Box p-value or a posterior predictive check). If the data is pushing the posterior into the unphysical region, the Bayes factor is sensitive to the *shape* of the truncation. You should report how much of the evidence is driven by the "edge" of the prior vs. the bulk of the likelihood.
+
+2. **Refine the Dark Energy Sensitivity:** The drop in the HS Bayes factor from 464.6 ($\Lambda$CDM) to 42.6 ($w_0w_a$CDM) is the most important result for robustness. You currently treat this as a "degradation." You should instead frame this as a **"Model-Hierarchy Degeneracy"**. Quantify the correlation between $\Sigma m_\nu$ and $w_a$ in the DESI chains. If the hierarchy preference vanishes when $w_a$ is free, the "decisive" claim is fragile. You should explicitly state: "The hierarchy preference is robust to $\Lambda$CDM, but is contingent on the dark energy model."
+
+3. **Oscillation Likelihood Simplification:** You are currently using a product of Gaussians for oscillation parameters. This is acceptable, but ensure you are using the *full* NuFIT 6.0 covariance matrix (including correlations between $\Delta m^2_{21}$ and $\Delta m^2_{3\ell}$). If you are using independent Gaussians, you are likely overestimating the precision of the oscillation constraint, which artificially inflates the Bayes factor. Verify if the NuFIT 6.0 $\Delta \chi^2$ is being applied as a constant or if you are marginalizing over the oscillation parameters. Marginalization is preferred to avoid "double counting" the oscillation data.
+
+4. **Double-Beta Decay Overclaim:** You state that a non-detection in upcoming experiments is the "most statistically probable outcome." This is a strong claim. You should qualify this by noting that this assumes the $\Lambda$CDM model is correct. If the true cosmology allows for higher $\Sigma m_\nu$ (e.g., via modified gravity or different neutrino physics), the $m_{\beta\beta}$ posterior would shift. Frame this as a "conditional prediction" rather than a definitive forecast.
+
+5. **Missed Opportunity - The "Feldman-Cousins" Discrepancy:** You show that your truncated Gaussian fit and the FC profile likelihood are similar. However, the FC approach is frequentist and the Bayesian approach is inherently prior-dependent. You should add a small section explaining why the Bayesian evidence is *more* appropriate here than the frequentist profile likelihood, specifically focusing on how the Bayesian framework naturally incorporates the "Occam's Razor" penalty for the IH's required fine-tuning of mass splittings.
+
+6. **Actionable Improvement for Future Iterations:** The current analysis is complete enough for a paper. Do not add more models. Instead, focus the next iteration on a "Stress Test": calculate the Bayes factor as a function of the *central value* of the cosmological constraint ($\mu_0$). Show at what value of $\mu_0$ the evidence for NH drops below $K=10$. This will provide the community with a "breaking point" for the hierarchy preference, which is more scientifically valuable than just reporting the current result.
+
+
+Respond in this format:
+
+\\begin{SUGGESTIONS}
+<SUGGESTIONS>
+\\end{SUGGESTIONS}
+
+In <SUGGESTIONS> put the suggestions to improve the plan.
+
+###### PROMPT ENDS ########
+
+###### RESPONSE [model: gemini-3.1-flash-lite-preview] ########
+\begin{SUGGESTIONS}
+The research plan is excellent and incorporates all previous feedback effectively. I have only two minor suggestions to ensure the final output is as robust as possible:
+
+1. **Clarify the "Prior-Data Conflict" reporting:** In Step 1, when calculating the Box p-value or assessing the impact of the truncation at $\Sigma m_\nu = 0$, explicitly distinguish between the *prior-driven* evidence (the volume of the parameter space excluded by the physical boundary) and the *likelihood-driven* evidence (the data's preference for lower mass values). This distinction is crucial for the "philosophical section" (Step 6) to defend the Bayesian approach against critics who might argue the result is merely a consequence of the prior boundary.
+
+2. **Refine the "Breaking Point" analysis:** In Step 5, ensure that when you calculate the Bayes factor $K$ as a function of the central value $\mu_0$, you keep the width ($\sigma$) of the cosmological likelihood fixed to the DESI DR2 value. This isolates the effect of the "tension" (the shift of the central value) from the effect of the "precision" (the width of the constraint). This will provide a cleaner, more interpretable "breaking point" for the community.
+
+The plan is otherwise comprehensive and ready for implementation.
+\end{SUGGESTIONS}
+
